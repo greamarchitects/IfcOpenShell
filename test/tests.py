@@ -105,3 +105,5 @@ f.write("output.ifc")
 with open("output.ifc") as txt:
     assert '123' in txt.read()
 os.unlink("output.ifc")
+
+print("All IfcOpenShell tests passed.")

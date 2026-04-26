@@ -34,7 +34,13 @@ from urllib.request import urlretrieve
 from zipfile import ZipFile
 
 # Test whether Blender and IfcOpenShell are installed
-if subprocess.call(['blender','-b','-P','bpy.py','TEST']) != 0:
+if subprocess.call([
+    r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe",
+    "-b",
+    "-P",
+    "bpy.py",
+    "TEST"
+]) != 0:
     print("[Error] Failed to launch Blender")
     sys.exit(1)
 else:
@@ -80,7 +86,14 @@ class TestFile:
         else: self.fn = [self.fn]
         for fn in self.fn:
             print ("[Notice] Rendering:",fn)
-            succes = subprocess.call(['blender','-b','-P','bpy.py','render',os.path.join("input",fn)]) == 0
+            succes = subprocess.call([
+    r"C:\Program Files\Blender Foundation\Blender 5.1\blender.exe",
+    "-b",
+    "-P",
+    "bpy.py",
+    "render",
+    os.path.join("input", fn)
+]) == 0
             if not succes: self.failed.append(fn)
         return len(self.failed) == 0
     def __str__(self): return "\n".join(self.failed) if len(self.failed) else ""

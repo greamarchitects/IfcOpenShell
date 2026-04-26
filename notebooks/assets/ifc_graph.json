@@ -1,1 +1,684 @@
-{"directed": true, "multigraph": false, "graph": {}, "nodes": [{"label": "IfcBuildingStorey: Erdgeschoss", "group": "storey", "title": "IfcBuildingStorey: Erdgeschoss", "size": 10, "id": "2eyxpyOx95m90jmsXLOuR0"}, {"label": "IfcDoor: Innentuer-1", "group": "IfcDoor", "title": "IfcDoor<br>Innentuer-1<br>1Oms875aH3Wg$9l65H2ZGw", "size": 10, "id": "1Oms875aH3Wg$9l65H2ZGw"}, {"label": "IfcDoor: Innentuer-2", "group": "IfcDoor", "title": "IfcDoor<br>Innentuer-2<br>0pGAjlJMP3ifYPATVF5xAR", "size": 10, "id": "0pGAjlJMP3ifYPATVF5xAR"}, {"label": "IfcDoor: Innentuer-3", "group": "IfcDoor", "title": "IfcDoor<br>Innentuer-3<br>2qiPPF3FrF8OIqfrKiSUqm", "size": 10, "id": "2qiPPF3FrF8OIqfrKiSUqm"}, {"label": "IfcBeam: Unterzug-1", "group": "IfcBeam", "title": "\n                Type: IfcBeam\n                Name: Unterzug-1\n                GlobalId: 3tCgZT92j6fw8fXgwCL3Jm\n                ", "size": 10, "id": "3tCgZT92j6fw8fXgwCL3Jm"}, {"label": "IfcWindow: EG-Fenster-6", "group": "IfcWindow", "title": "IfcWindow<br>EG-Fenster-6<br>1srAI$R4T8ihLXSNHmUSET", "size": 10, "id": "1srAI$R4T8ihLXSNHmUSET"}, {"label": "IfcWindow: EG-Fenster-7", "group": "IfcWindow", "title": "IfcWindow<br>EG-Fenster-7<br>0B1RwEzzP3CfME5NR$Vqh5", "size": 10, "id": "0B1RwEzzP3CfME5NR$Vqh5"}, {"label": "IfcDoor: Haustuer", "group": "IfcDoor", "title": "IfcDoor<br>Haustuer<br>2jTRqchjf7oB0yhQ6462T0", "size": 10, "id": "2jTRqchjf7oB0yhQ6462T0"}, {"label": "IfcWindow: EG-Fenster-4", "group": "IfcWindow", "title": "IfcWindow<br>EG-Fenster-4<br>25nJxEpYf8LRDJNkMUVO0m", "size": 10, "id": "25nJxEpYf8LRDJNkMUVO0m"}, {"label": "IfcWindow: EG-Fenster-5", "group": "IfcWindow", "title": "IfcWindow<br>EG-Fenster-5<br>3BFcylCsX74PQAoRAe5fNv", "size": 10, "id": "3BFcylCsX74PQAoRAe5fNv"}, {"label": "IfcDoor: Terrassentuer", "group": "IfcDoor", "title": "IfcDoor<br>Terrassentuer<br>1M$gxUrX1Fiwe3P64ww7U5", "size": 10, "id": "1M$gxUrX1Fiwe3P64ww7U5"}, {"label": "IfcWindow: EG-Fenster-8", "group": "IfcWindow", "title": "IfcWindow<br>EG-Fenster-8<br>13aSY79zb8fP4HApEJ0z_e", "size": 10, "id": "13aSY79zb8fP4HApEJ0z_e"}, {"label": "IfcWindow: EG-Fenster-9", "group": "IfcWindow", "title": "IfcWindow<br>EG-Fenster-9<br>2EQh_jhP1B_A_AMuSJc5E0", "size": 10, "id": "2EQh_jhP1B_A_AMuSJc5E0"}, {"label": "IfcWindow: EG-Fenster-1", "group": "IfcWindow", "title": "IfcWindow<br>EG-Fenster-1<br>1TAI4ouKX4Xx4lBDZIu5qM", "size": 10, "id": "1TAI4ouKX4Xx4lBDZIu5qM"}, {"label": "IfcWindow: EG-Fenster-2", "group": "IfcWindow", "title": "IfcWindow<br>EG-Fenster-2<br>2Q9w7oRXP249jBobEMVqlZ", "size": 10, "id": "2Q9w7oRXP249jBobEMVqlZ"}, {"label": "IfcWindow: EG-Fenster-3", "group": "IfcWindow", "title": "IfcWindow<br>EG-Fenster-3<br>1DiYqhfzH9xxuJdVHwXCNa", "size": 10, "id": "1DiYqhfzH9xxuJdVHwXCNa"}, {"label": "IfcSlab: Bodenplatte", "group": "IfcSlab", "title": "\n                Type: IfcSlab\n                Name: Bodenplatte\n                GlobalId: 1pPHnf7cXCpPsNEnQf8_6B\n                ", "size": 10, "id": "1pPHnf7cXCpPsNEnQf8_6B"}, {"label": "IfcBuildingStorey: Dachgeschoss", "group": "storey", "title": "IfcBuildingStorey: Dachgeschoss", "size": 10, "id": "273g3wqLzDtfYIl7qqkgcO"}, {"label": "IfcBeam: Pfette-2-1", "group": "IfcBeam", "title": "\n                Type: IfcBeam\n                Name: Pfette-2-1\n                GlobalId: 0eaC0nL3XAOfFxRXK_2iAr\n                ", "size": 10, "id": "0eaC0nL3XAOfFxRXK_2iAr"}, {"label": "IfcBeam: Pfette-1-1", "group": "IfcBeam", "title": "\n                Type: IfcBeam\n                Name: Pfette-1-1\n                GlobalId: 3jZHeNcfvDMf9wG$wx9XqG\n                ", "size": 10, "id": "3jZHeNcfvDMf9wG$wx9XqG"}, {"label": "IfcBeam: First", "group": "IfcBeam", "title": "\n                Type: IfcBeam\n                Name: First\n                GlobalId: 20bTaetQDApP5w8egFxj13\n                ", "size": 10, "id": "20bTaetQDApP5w8egFxj13"}, {"label": "IfcSlab: Slab-033", "group": "IfcSlab", "title": "IfcSlab<br>Slab-033<br>2RGlQk4xH47RHK93zcTzUL", "size": 10, "id": "2RGlQk4xH47RHK93zcTzUL"}, {"label": "IfcSlab: Dach-1", "group": "IfcSlab", "title": "\n                Type: IfcSlab\n                Name: Dach-1\n                GlobalId: 07Enbsqm9C7AQC9iyBwfSD\n                ", "size": 10, "id": "07Enbsqm9C7AQC9iyBwfSD"}, {"label": "IfcSlab: Dach-2", "group": "IfcSlab", "title": "\n                Type: IfcSlab\n                Name: Dach-2\n                GlobalId: 2IxUUNUVPB6Ob$eicCfP2N\n                ", "size": 10, "id": "2IxUUNUVPB6Ob$eicCfP2N"}, {"label": "IfcWindow: OG-Fenster-2", "group": "IfcWindow", "title": "IfcWindow<br>OG-Fenster-2<br>1zOBw0Gej5Wf0QAJfHnOc0", "size": 10, "id": "1zOBw0Gej5Wf0QAJfHnOc0"}, {"label": "IfcWindow: OG-Fenster-1", "group": "IfcWindow", "title": "IfcWindow<br>OG-Fenster-1<br>2ACmFFQhT1Ouf0x4YRUh9m", "size": 10, "id": "2ACmFFQhT1Ouf0x4YRUh9m"}, {"label": "IfcWallStandardCase: Wand-Int-ERDG-2", "group": "IfcWallStandardCase", "title": "IfcWallStandardCase<br>Wand-Int-ERDG-2<br>3PfS__Y_DBAfq5naM6zD2Z", "size": 10, "id": "3PfS__Y_DBAfq5naM6zD2Z"}, {"label": "IfcOpeningElement: Innentuer-1", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>Innentuer-1<br>0LM8GvGe$G3dlW4mZ4aA9R", "size": 10, "id": "0LM8GvGe$G3dlW4mZ4aA9R"}, {"label": "IfcWallStandardCase: Wand-Int-ERDG-3", "group": "IfcWallStandardCase", "title": "IfcWallStandardCase<br>Wand-Int-ERDG-3<br>3jjW3rL656ex34Gws22EfM", "size": 10, "id": "3jjW3rL656ex34Gws22EfM"}, {"label": "IfcOpeningElement: Innentuer-2", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>Innentuer-2<br>253rr8ORNAORFOx911Dvez", "size": 10, "id": "253rr8ORNAORFOx911Dvez"}, {"label": "IfcOpeningElement: Innentuer-3", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>Innentuer-3<br>2lV07gym5YkPLv5gWQeAr4", "size": 10, "id": "2lV07gym5YkPLv5gWQeAr4"}, {"label": "IfcWallStandardCase: Wand-Ext-ERDG-1", "group": "IfcWallStandardCase", "title": "IfcWallStandardCase<br>Wand-Ext-ERDG-1<br>3rPX_Juz59peXXY6wDJl18", "size": 10, "id": "3rPX_Juz59peXXY6wDJl18"}, {"label": "IfcOpeningElement: EG-Fenster-6", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>EG-Fenster-6<br>0seqbT9MlcQAX_K0YLzD86", "size": 10, "id": "0seqbT9MlcQAX_K0YLzD86"}, {"label": "IfcOpeningElement: EG-Fenster-7", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>EG-Fenster-7<br>2NE9qKcWUF2uoVhRSqTd_a", "size": 10, "id": "2NE9qKcWUF2uoVhRSqTd_a"}, {"label": "IfcOpeningElement: Haustuer", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>Haustuer<br>04RcXu1mKxpGnJw_7oRBLn", "size": 10, "id": "04RcXu1mKxpGnJw_7oRBLn"}, {"label": "IfcWallStandardCase: Wand-Ext-ERDG-4", "group": "IfcWallStandardCase", "title": "IfcWallStandardCase<br>Wand-Ext-ERDG-4<br>16DNNqzfP2thtfaOflvsKA", "size": 10, "id": "16DNNqzfP2thtfaOflvsKA"}, {"label": "IfcOpeningElement: EG-Fenster-4", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>EG-Fenster-4<br>1c0Yk5iLrVR4e3y5gEUEKa", "size": 10, "id": "1c0Yk5iLrVR4e3y5gEUEKa"}, {"label": "IfcOpeningElement: EG-Fenster-5", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>EG-Fenster-5<br>2uYaWLoMXGPW4zZLca_BWr", "size": 10, "id": "2uYaWLoMXGPW4zZLca_BWr"}, {"label": "IfcOpeningElement: Terrassentuer", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>Terrassentuer<br>1r_KIZSL381KWyrYQXOn52", "size": 10, "id": "1r_KIZSL381KWyrYQXOn52"}, {"label": "IfcWallStandardCase: Wand-Ext-ERDG-3", "group": "IfcWallStandardCase", "title": "IfcWallStandardCase<br>Wand-Ext-ERDG-3<br>25fsbPyk15VvuXI$yNKenK", "size": 10, "id": "25fsbPyk15VvuXI$yNKenK"}, {"label": "IfcOpeningElement: EG-Fenster-8", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>EG-Fenster-8<br>2OW0PH61vS77xxyX1o74u8", "size": 10, "id": "2OW0PH61vS77xxyX1o74u8"}, {"label": "IfcOpeningElement: EG-Fenster-9", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>EG-Fenster-9<br>2cFXkmvNz6q8TXoCpAWu5Y", "size": 10, "id": "2cFXkmvNz6q8TXoCpAWu5Y"}, {"label": "IfcWallStandardCase: Wand-Ext-ERDG-2", "group": "IfcWallStandardCase", "title": "IfcWallStandardCase<br>Wand-Ext-ERDG-2<br>1bzfVsJqn8De5PukCrqylz", "size": 10, "id": "1bzfVsJqn8De5PukCrqylz"}, {"label": "IfcOpeningElement: EG-Fenster-1", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>EG-Fenster-1<br>1edW1mWMGQA1AyF6LZE0rZ", "size": 10, "id": "1edW1mWMGQA1AyF6LZE0rZ"}, {"label": "IfcOpeningElement: EG-Fenster-2", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>EG-Fenster-2<br>0B6UMAQb_hdSR0n26dQbUu", "size": 10, "id": "0B6UMAQb_hdSR0n26dQbUu"}, {"label": "IfcOpeningElement: EG-Fenster-3", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>EG-Fenster-3<br>2o6xwVLCqc7RJXOAHbb1iq", "size": 10, "id": "2o6xwVLCqc7RJXOAHbb1iq"}, {"label": "IfcOpeningElement: Slab Opening", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>Slab Opening<br>16PF6khT5_p$Z03P73inyv", "size": 10, "id": "16PF6khT5_p$Z03P73inyv"}, {"label": "IfcWallStandardCase: Wand-Ext-OG-1", "group": "IfcWallStandardCase", "title": "IfcWallStandardCase<br>Wand-Ext-OG-1<br>0knNIAVBPBFvBy_m5QVHsU", "size": 10, "id": "0knNIAVBPBFvBy_m5QVHsU"}, {"label": "IfcOpeningElement: OG-Fenster-2", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>OG-Fenster-2<br>02A6FCU4lrAZ0mm$uvcVpb", "size": 10, "id": "02A6FCU4lrAZ0mm$uvcVpb"}, {"label": "IfcWallStandardCase: Wand-Ext-OG-3", "group": "IfcWallStandardCase", "title": "IfcWallStandardCase<br>Wand-Ext-OG-3<br>3VCarUKgH1buLo22Ozxe6J", "size": 10, "id": "3VCarUKgH1buLo22Ozxe6J"}, {"label": "IfcOpeningElement: OG-Fenster-1", "group": "IfcOpeningElement", "title": "IfcOpeningElement<br>OG-Fenster-1<br>0e2iWM3ICUNVYAkmP5YImx", "size": 10, "id": "0e2iWM3ICUNVYAkmP5YImx"}], "edges": [{"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "1Oms875aH3Wg$9l65H2ZGw"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "0pGAjlJMP3ifYPATVF5xAR"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "2qiPPF3FrF8OIqfrKiSUqm"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "3tCgZT92j6fw8fXgwCL3Jm"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "1srAI$R4T8ihLXSNHmUSET"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "0B1RwEzzP3CfME5NR$Vqh5"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "2jTRqchjf7oB0yhQ6462T0"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "25nJxEpYf8LRDJNkMUVO0m"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "3BFcylCsX74PQAoRAe5fNv"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "1M$gxUrX1Fiwe3P64ww7U5"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "13aSY79zb8fP4HApEJ0z_e"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "2EQh_jhP1B_A_AMuSJc5E0"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "1TAI4ouKX4Xx4lBDZIu5qM"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "2Q9w7oRXP249jBobEMVqlZ"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "1DiYqhfzH9xxuJdVHwXCNa"}, {"width": 1, "source": "2eyxpyOx95m90jmsXLOuR0", "target": "1pPHnf7cXCpPsNEnQf8_6B"}, {"width": 1, "source": "273g3wqLzDtfYIl7qqkgcO", "target": "0eaC0nL3XAOfFxRXK_2iAr"}, {"width": 1, "source": "273g3wqLzDtfYIl7qqkgcO", "target": "3jZHeNcfvDMf9wG$wx9XqG"}, {"width": 1, "source": "273g3wqLzDtfYIl7qqkgcO", "target": "20bTaetQDApP5w8egFxj13"}, {"width": 1, "source": "273g3wqLzDtfYIl7qqkgcO", "target": "2RGlQk4xH47RHK93zcTzUL"}, {"width": 1, "source": "273g3wqLzDtfYIl7qqkgcO", "target": "07Enbsqm9C7AQC9iyBwfSD"}, {"width": 1, "source": "273g3wqLzDtfYIl7qqkgcO", "target": "2IxUUNUVPB6Ob$eicCfP2N"}, {"width": 1, "source": "273g3wqLzDtfYIl7qqkgcO", "target": "1zOBw0Gej5Wf0QAJfHnOc0"}, {"width": 1, "source": "273g3wqLzDtfYIl7qqkgcO", "target": "2ACmFFQhT1Ouf0x4YRUh9m"}, {"relation": "voids", "width": 1, "source": "2RGlQk4xH47RHK93zcTzUL", "target": "16PF6khT5_p$Z03P73inyv"}, {"relation": "voids", "width": 1, "source": "3PfS__Y_DBAfq5naM6zD2Z", "target": "0LM8GvGe$G3dlW4mZ4aA9R"}, {"relation": "fills", "width": 1, "source": "0LM8GvGe$G3dlW4mZ4aA9R", "target": "1Oms875aH3Wg$9l65H2ZGw"}, {"relation": "voids", "width": 1, "source": "3jjW3rL656ex34Gws22EfM", "target": "253rr8ORNAORFOx911Dvez"}, {"relation": "voids", "width": 1, "source": "3jjW3rL656ex34Gws22EfM", "target": "2lV07gym5YkPLv5gWQeAr4"}, {"relation": "fills", "width": 1, "source": "253rr8ORNAORFOx911Dvez", "target": "0pGAjlJMP3ifYPATVF5xAR"}, {"relation": "fills", "width": 1, "source": "2lV07gym5YkPLv5gWQeAr4", "target": "2qiPPF3FrF8OIqfrKiSUqm"}, {"relation": "voids", "width": 1, "source": "3rPX_Juz59peXXY6wDJl18", "target": "0seqbT9MlcQAX_K0YLzD86"}, {"relation": "voids", "width": 1, "source": "3rPX_Juz59peXXY6wDJl18", "target": "2NE9qKcWUF2uoVhRSqTd_a"}, {"relation": "voids", "width": 1, "source": "3rPX_Juz59peXXY6wDJl18", "target": "04RcXu1mKxpGnJw_7oRBLn"}, {"relation": "fills", "width": 1, "source": "0seqbT9MlcQAX_K0YLzD86", "target": "1srAI$R4T8ihLXSNHmUSET"}, {"relation": "fills", "width": 1, "source": "2NE9qKcWUF2uoVhRSqTd_a", "target": "0B1RwEzzP3CfME5NR$Vqh5"}, {"relation": "fills", "width": 1, "source": "04RcXu1mKxpGnJw_7oRBLn", "target": "2jTRqchjf7oB0yhQ6462T0"}, {"relation": "voids", "width": 1, "source": "16DNNqzfP2thtfaOflvsKA", "target": "1c0Yk5iLrVR4e3y5gEUEKa"}, {"relation": "voids", "width": 1, "source": "16DNNqzfP2thtfaOflvsKA", "target": "2uYaWLoMXGPW4zZLca_BWr"}, {"relation": "voids", "width": 1, "source": "16DNNqzfP2thtfaOflvsKA", "target": "1r_KIZSL381KWyrYQXOn52"}, {"relation": "fills", "width": 1, "source": "1c0Yk5iLrVR4e3y5gEUEKa", "target": "25nJxEpYf8LRDJNkMUVO0m"}, {"relation": "fills", "width": 1, "source": "2uYaWLoMXGPW4zZLca_BWr", "target": "3BFcylCsX74PQAoRAe5fNv"}, {"relation": "fills", "width": 1, "source": "1r_KIZSL381KWyrYQXOn52", "target": "1M$gxUrX1Fiwe3P64ww7U5"}, {"relation": "voids", "width": 1, "source": "25fsbPyk15VvuXI$yNKenK", "target": "2OW0PH61vS77xxyX1o74u8"}, {"relation": "voids", "width": 1, "source": "25fsbPyk15VvuXI$yNKenK", "target": "2cFXkmvNz6q8TXoCpAWu5Y"}, {"relation": "fills", "width": 1, "source": "2OW0PH61vS77xxyX1o74u8", "target": "13aSY79zb8fP4HApEJ0z_e"}, {"relation": "fills", "width": 1, "source": "2cFXkmvNz6q8TXoCpAWu5Y", "target": "2EQh_jhP1B_A_AMuSJc5E0"}, {"relation": "voids", "width": 1, "source": "1bzfVsJqn8De5PukCrqylz", "target": "1edW1mWMGQA1AyF6LZE0rZ"}, {"relation": "voids", "width": 1, "source": "1bzfVsJqn8De5PukCrqylz", "target": "0B6UMAQb_hdSR0n26dQbUu"}, {"relation": "voids", "width": 1, "source": "1bzfVsJqn8De5PukCrqylz", "target": "2o6xwVLCqc7RJXOAHbb1iq"}, {"relation": "fills", "width": 1, "source": "1edW1mWMGQA1AyF6LZE0rZ", "target": "1TAI4ouKX4Xx4lBDZIu5qM"}, {"relation": "fills", "width": 1, "source": "0B6UMAQb_hdSR0n26dQbUu", "target": "2Q9w7oRXP249jBobEMVqlZ"}, {"relation": "fills", "width": 1, "source": "2o6xwVLCqc7RJXOAHbb1iq", "target": "1DiYqhfzH9xxuJdVHwXCNa"}, {"relation": "voids", "width": 1, "source": "0knNIAVBPBFvBy_m5QVHsU", "target": "02A6FCU4lrAZ0mm$uvcVpb"}, {"relation": "fills", "width": 1, "source": "02A6FCU4lrAZ0mm$uvcVpb", "target": "1zOBw0Gej5Wf0QAJfHnOc0"}, {"relation": "voids", "width": 1, "source": "3VCarUKgH1buLo22Ozxe6J", "target": "0e2iWM3ICUNVYAkmP5YImx"}, {"relation": "fills", "width": 1, "source": "0e2iWM3ICUNVYAkmP5YImx", "target": "2ACmFFQhT1Ouf0x4YRUh9m"}]}
+{
+  "directed": true,
+  "multigraph": false,
+  "graph": {},
+  "nodes": [
+    {
+      "label": "IfcBuildingStorey: Erdgeschoss",
+      "group": "storey",
+      "title": "IfcBuildingStorey: Erdgeschoss",
+      "size": 10,
+      "id": "2eyxpyOx95m90jmsXLOuR0"
+    },
+    {
+      "label": "IfcDoor: Innentuer-1",
+      "group": "IfcDoor",
+      "title": "IfcDoor<br>Innentuer-1<br>1Oms875aH3Wg$9l65H2ZGw",
+      "size": 10,
+      "id": "1Oms875aH3Wg$9l65H2ZGw"
+    },
+    {
+      "label": "IfcDoor: Innentuer-2",
+      "group": "IfcDoor",
+      "title": "IfcDoor<br>Innentuer-2<br>0pGAjlJMP3ifYPATVF5xAR",
+      "size": 10,
+      "id": "0pGAjlJMP3ifYPATVF5xAR"
+    },
+    {
+      "label": "IfcDoor: Innentuer-3",
+      "group": "IfcDoor",
+      "title": "IfcDoor<br>Innentuer-3<br>2qiPPF3FrF8OIqfrKiSUqm",
+      "size": 10,
+      "id": "2qiPPF3FrF8OIqfrKiSUqm"
+    },
+    {
+      "label": "IfcBeam: Unterzug-1",
+      "group": "IfcBeam",
+      "title": "\n                Type: IfcBeam\n                Name: Unterzug-1\n                GlobalId: 3tCgZT92j6fw8fXgwCL3Jm\n                ",
+      "size": 10,
+      "id": "3tCgZT92j6fw8fXgwCL3Jm"
+    },
+    {
+      "label": "IfcWindow: EG-Fenster-6",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>EG-Fenster-6<br>1srAI$R4T8ihLXSNHmUSET",
+      "size": 10,
+      "id": "1srAI$R4T8ihLXSNHmUSET"
+    },
+    {
+      "label": "IfcWindow: EG-Fenster-7",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>EG-Fenster-7<br>0B1RwEzzP3CfME5NR$Vqh5",
+      "size": 10,
+      "id": "0B1RwEzzP3CfME5NR$Vqh5"
+    },
+    {
+      "label": "IfcDoor: Haustuer",
+      "group": "IfcDoor",
+      "title": "IfcDoor<br>Haustuer<br>2jTRqchjf7oB0yhQ6462T0",
+      "size": 10,
+      "id": "2jTRqchjf7oB0yhQ6462T0"
+    },
+    {
+      "label": "IfcWindow: EG-Fenster-4",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>EG-Fenster-4<br>25nJxEpYf8LRDJNkMUVO0m",
+      "size": 10,
+      "id": "25nJxEpYf8LRDJNkMUVO0m"
+    },
+    {
+      "label": "IfcWindow: EG-Fenster-5",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>EG-Fenster-5<br>3BFcylCsX74PQAoRAe5fNv",
+      "size": 10,
+      "id": "3BFcylCsX74PQAoRAe5fNv"
+    },
+    {
+      "label": "IfcDoor: Terrassentuer",
+      "group": "IfcDoor",
+      "title": "IfcDoor<br>Terrassentuer<br>1M$gxUrX1Fiwe3P64ww7U5",
+      "size": 10,
+      "id": "1M$gxUrX1Fiwe3P64ww7U5"
+    },
+    {
+      "label": "IfcWindow: EG-Fenster-8",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>EG-Fenster-8<br>13aSY79zb8fP4HApEJ0z_e",
+      "size": 10,
+      "id": "13aSY79zb8fP4HApEJ0z_e"
+    },
+    {
+      "label": "IfcWindow: EG-Fenster-9",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>EG-Fenster-9<br>2EQh_jhP1B_A_AMuSJc5E0",
+      "size": 10,
+      "id": "2EQh_jhP1B_A_AMuSJc5E0"
+    },
+    {
+      "label": "IfcWindow: EG-Fenster-1",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>EG-Fenster-1<br>1TAI4ouKX4Xx4lBDZIu5qM",
+      "size": 10,
+      "id": "1TAI4ouKX4Xx4lBDZIu5qM"
+    },
+    {
+      "label": "IfcWindow: EG-Fenster-2",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>EG-Fenster-2<br>2Q9w7oRXP249jBobEMVqlZ",
+      "size": 10,
+      "id": "2Q9w7oRXP249jBobEMVqlZ"
+    },
+    {
+      "label": "IfcWindow: EG-Fenster-3",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>EG-Fenster-3<br>1DiYqhfzH9xxuJdVHwXCNa",
+      "size": 10,
+      "id": "1DiYqhfzH9xxuJdVHwXCNa"
+    },
+    {
+      "label": "IfcSlab: Bodenplatte",
+      "group": "IfcSlab",
+      "title": "\n                Type: IfcSlab\n                Name: Bodenplatte\n                GlobalId: 1pPHnf7cXCpPsNEnQf8_6B\n                ",
+      "size": 10,
+      "id": "1pPHnf7cXCpPsNEnQf8_6B"
+    },
+    {
+      "label": "IfcBuildingStorey: Dachgeschoss",
+      "group": "storey",
+      "title": "IfcBuildingStorey: Dachgeschoss",
+      "size": 10,
+      "id": "273g3wqLzDtfYIl7qqkgcO"
+    },
+    {
+      "label": "IfcBeam: Pfette-2-1",
+      "group": "IfcBeam",
+      "title": "\n                Type: IfcBeam\n                Name: Pfette-2-1\n                GlobalId: 0eaC0nL3XAOfFxRXK_2iAr\n                ",
+      "size": 10,
+      "id": "0eaC0nL3XAOfFxRXK_2iAr"
+    },
+    {
+      "label": "IfcBeam: Pfette-1-1",
+      "group": "IfcBeam",
+      "title": "\n                Type: IfcBeam\n                Name: Pfette-1-1\n                GlobalId: 3jZHeNcfvDMf9wG$wx9XqG\n                ",
+      "size": 10,
+      "id": "3jZHeNcfvDMf9wG$wx9XqG"
+    },
+    {
+      "label": "IfcBeam: First",
+      "group": "IfcBeam",
+      "title": "\n                Type: IfcBeam\n                Name: First\n                GlobalId: 20bTaetQDApP5w8egFxj13\n                ",
+      "size": 10,
+      "id": "20bTaetQDApP5w8egFxj13"
+    },
+    {
+      "label": "IfcSlab: Slab-033",
+      "group": "IfcSlab",
+      "title": "IfcSlab<br>Slab-033<br>2RGlQk4xH47RHK93zcTzUL",
+      "size": 10,
+      "id": "2RGlQk4xH47RHK93zcTzUL"
+    },
+    {
+      "label": "IfcSlab: Dach-1",
+      "group": "IfcSlab",
+      "title": "\n                Type: IfcSlab\n                Name: Dach-1\n                GlobalId: 07Enbsqm9C7AQC9iyBwfSD\n                ",
+      "size": 10,
+      "id": "07Enbsqm9C7AQC9iyBwfSD"
+    },
+    {
+      "label": "IfcSlab: Dach-2",
+      "group": "IfcSlab",
+      "title": "\n                Type: IfcSlab\n                Name: Dach-2\n                GlobalId: 2IxUUNUVPB6Ob$eicCfP2N\n                ",
+      "size": 10,
+      "id": "2IxUUNUVPB6Ob$eicCfP2N"
+    },
+    {
+      "label": "IfcWindow: OG-Fenster-2",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>OG-Fenster-2<br>1zOBw0Gej5Wf0QAJfHnOc0",
+      "size": 10,
+      "id": "1zOBw0Gej5Wf0QAJfHnOc0"
+    },
+    {
+      "label": "IfcWindow: OG-Fenster-1",
+      "group": "IfcWindow",
+      "title": "IfcWindow<br>OG-Fenster-1<br>2ACmFFQhT1Ouf0x4YRUh9m",
+      "size": 10,
+      "id": "2ACmFFQhT1Ouf0x4YRUh9m"
+    },
+    {
+      "label": "IfcWallStandardCase: Wand-Int-ERDG-2",
+      "group": "IfcWallStandardCase",
+      "title": "IfcWallStandardCase<br>Wand-Int-ERDG-2<br>3PfS__Y_DBAfq5naM6zD2Z",
+      "size": 10,
+      "id": "3PfS__Y_DBAfq5naM6zD2Z"
+    },
+    {
+      "label": "IfcOpeningElement: Innentuer-1",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>Innentuer-1<br>0LM8GvGe$G3dlW4mZ4aA9R",
+      "size": 10,
+      "id": "0LM8GvGe$G3dlW4mZ4aA9R"
+    },
+    {
+      "label": "IfcWallStandardCase: Wand-Int-ERDG-3",
+      "group": "IfcWallStandardCase",
+      "title": "IfcWallStandardCase<br>Wand-Int-ERDG-3<br>3jjW3rL656ex34Gws22EfM",
+      "size": 10,
+      "id": "3jjW3rL656ex34Gws22EfM"
+    },
+    {
+      "label": "IfcOpeningElement: Innentuer-2",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>Innentuer-2<br>253rr8ORNAORFOx911Dvez",
+      "size": 10,
+      "id": "253rr8ORNAORFOx911Dvez"
+    },
+    {
+      "label": "IfcOpeningElement: Innentuer-3",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>Innentuer-3<br>2lV07gym5YkPLv5gWQeAr4",
+      "size": 10,
+      "id": "2lV07gym5YkPLv5gWQeAr4"
+    },
+    {
+      "label": "IfcWallStandardCase: Wand-Ext-ERDG-1",
+      "group": "IfcWallStandardCase",
+      "title": "IfcWallStandardCase<br>Wand-Ext-ERDG-1<br>3rPX_Juz59peXXY6wDJl18",
+      "size": 10,
+      "id": "3rPX_Juz59peXXY6wDJl18"
+    },
+    {
+      "label": "IfcOpeningElement: EG-Fenster-6",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>EG-Fenster-6<br>0seqbT9MlcQAX_K0YLzD86",
+      "size": 10,
+      "id": "0seqbT9MlcQAX_K0YLzD86"
+    },
+    {
+      "label": "IfcOpeningElement: EG-Fenster-7",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>EG-Fenster-7<br>2NE9qKcWUF2uoVhRSqTd_a",
+      "size": 10,
+      "id": "2NE9qKcWUF2uoVhRSqTd_a"
+    },
+    {
+      "label": "IfcOpeningElement: Haustuer",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>Haustuer<br>04RcXu1mKxpGnJw_7oRBLn",
+      "size": 10,
+      "id": "04RcXu1mKxpGnJw_7oRBLn"
+    },
+    {
+      "label": "IfcWallStandardCase: Wand-Ext-ERDG-4",
+      "group": "IfcWallStandardCase",
+      "title": "IfcWallStandardCase<br>Wand-Ext-ERDG-4<br>16DNNqzfP2thtfaOflvsKA",
+      "size": 10,
+      "id": "16DNNqzfP2thtfaOflvsKA"
+    },
+    {
+      "label": "IfcOpeningElement: EG-Fenster-4",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>EG-Fenster-4<br>1c0Yk5iLrVR4e3y5gEUEKa",
+      "size": 10,
+      "id": "1c0Yk5iLrVR4e3y5gEUEKa"
+    },
+    {
+      "label": "IfcOpeningElement: EG-Fenster-5",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>EG-Fenster-5<br>2uYaWLoMXGPW4zZLca_BWr",
+      "size": 10,
+      "id": "2uYaWLoMXGPW4zZLca_BWr"
+    },
+    {
+      "label": "IfcOpeningElement: Terrassentuer",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>Terrassentuer<br>1r_KIZSL381KWyrYQXOn52",
+      "size": 10,
+      "id": "1r_KIZSL381KWyrYQXOn52"
+    },
+    {
+      "label": "IfcWallStandardCase: Wand-Ext-ERDG-3",
+      "group": "IfcWallStandardCase",
+      "title": "IfcWallStandardCase<br>Wand-Ext-ERDG-3<br>25fsbPyk15VvuXI$yNKenK",
+      "size": 10,
+      "id": "25fsbPyk15VvuXI$yNKenK"
+    },
+    {
+      "label": "IfcOpeningElement: EG-Fenster-8",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>EG-Fenster-8<br>2OW0PH61vS77xxyX1o74u8",
+      "size": 10,
+      "id": "2OW0PH61vS77xxyX1o74u8"
+    },
+    {
+      "label": "IfcOpeningElement: EG-Fenster-9",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>EG-Fenster-9<br>2cFXkmvNz6q8TXoCpAWu5Y",
+      "size": 10,
+      "id": "2cFXkmvNz6q8TXoCpAWu5Y"
+    },
+    {
+      "label": "IfcWallStandardCase: Wand-Ext-ERDG-2",
+      "group": "IfcWallStandardCase",
+      "title": "IfcWallStandardCase<br>Wand-Ext-ERDG-2<br>1bzfVsJqn8De5PukCrqylz",
+      "size": 10,
+      "id": "1bzfVsJqn8De5PukCrqylz"
+    },
+    {
+      "label": "IfcOpeningElement: EG-Fenster-1",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>EG-Fenster-1<br>1edW1mWMGQA1AyF6LZE0rZ",
+      "size": 10,
+      "id": "1edW1mWMGQA1AyF6LZE0rZ"
+    },
+    {
+      "label": "IfcOpeningElement: EG-Fenster-2",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>EG-Fenster-2<br>0B6UMAQb_hdSR0n26dQbUu",
+      "size": 10,
+      "id": "0B6UMAQb_hdSR0n26dQbUu"
+    },
+    {
+      "label": "IfcOpeningElement: EG-Fenster-3",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>EG-Fenster-3<br>2o6xwVLCqc7RJXOAHbb1iq",
+      "size": 10,
+      "id": "2o6xwVLCqc7RJXOAHbb1iq"
+    },
+    {
+      "label": "IfcOpeningElement: Slab Opening",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>Slab Opening<br>16PF6khT5_p$Z03P73inyv",
+      "size": 10,
+      "id": "16PF6khT5_p$Z03P73inyv"
+    },
+    {
+      "label": "IfcWallStandardCase: Wand-Ext-OG-1",
+      "group": "IfcWallStandardCase",
+      "title": "IfcWallStandardCase<br>Wand-Ext-OG-1<br>0knNIAVBPBFvBy_m5QVHsU",
+      "size": 10,
+      "id": "0knNIAVBPBFvBy_m5QVHsU"
+    },
+    {
+      "label": "IfcOpeningElement: OG-Fenster-2",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>OG-Fenster-2<br>02A6FCU4lrAZ0mm$uvcVpb",
+      "size": 10,
+      "id": "02A6FCU4lrAZ0mm$uvcVpb"
+    },
+    {
+      "label": "IfcWallStandardCase: Wand-Ext-OG-3",
+      "group": "IfcWallStandardCase",
+      "title": "IfcWallStandardCase<br>Wand-Ext-OG-3<br>3VCarUKgH1buLo22Ozxe6J",
+      "size": 10,
+      "id": "3VCarUKgH1buLo22Ozxe6J"
+    },
+    {
+      "label": "IfcOpeningElement: OG-Fenster-1",
+      "group": "IfcOpeningElement",
+      "title": "IfcOpeningElement<br>OG-Fenster-1<br>0e2iWM3ICUNVYAkmP5YImx",
+      "size": 10,
+      "id": "0e2iWM3ICUNVYAkmP5YImx"
+    }
+  ],
+  "edges": [
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "1Oms875aH3Wg$9l65H2ZGw"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "0pGAjlJMP3ifYPATVF5xAR"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "2qiPPF3FrF8OIqfrKiSUqm"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "3tCgZT92j6fw8fXgwCL3Jm"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "1srAI$R4T8ihLXSNHmUSET"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "0B1RwEzzP3CfME5NR$Vqh5"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "2jTRqchjf7oB0yhQ6462T0"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "25nJxEpYf8LRDJNkMUVO0m"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "3BFcylCsX74PQAoRAe5fNv"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "1M$gxUrX1Fiwe3P64ww7U5"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "13aSY79zb8fP4HApEJ0z_e"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "2EQh_jhP1B_A_AMuSJc5E0"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "1TAI4ouKX4Xx4lBDZIu5qM"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "2Q9w7oRXP249jBobEMVqlZ"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "1DiYqhfzH9xxuJdVHwXCNa"
+    },
+    {
+      "width": 1,
+      "source": "2eyxpyOx95m90jmsXLOuR0",
+      "target": "1pPHnf7cXCpPsNEnQf8_6B"
+    },
+    {
+      "width": 1,
+      "source": "273g3wqLzDtfYIl7qqkgcO",
+      "target": "0eaC0nL3XAOfFxRXK_2iAr"
+    },
+    {
+      "width": 1,
+      "source": "273g3wqLzDtfYIl7qqkgcO",
+      "target": "3jZHeNcfvDMf9wG$wx9XqG"
+    },
+    {
+      "width": 1,
+      "source": "273g3wqLzDtfYIl7qqkgcO",
+      "target": "20bTaetQDApP5w8egFxj13"
+    },
+    {
+      "width": 1,
+      "source": "273g3wqLzDtfYIl7qqkgcO",
+      "target": "2RGlQk4xH47RHK93zcTzUL"
+    },
+    {
+      "width": 1,
+      "source": "273g3wqLzDtfYIl7qqkgcO",
+      "target": "07Enbsqm9C7AQC9iyBwfSD"
+    },
+    {
+      "width": 1,
+      "source": "273g3wqLzDtfYIl7qqkgcO",
+      "target": "2IxUUNUVPB6Ob$eicCfP2N"
+    },
+    {
+      "width": 1,
+      "source": "273g3wqLzDtfYIl7qqkgcO",
+      "target": "1zOBw0Gej5Wf0QAJfHnOc0"
+    },
+    {
+      "width": 1,
+      "source": "273g3wqLzDtfYIl7qqkgcO",
+      "target": "2ACmFFQhT1Ouf0x4YRUh9m"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "2RGlQk4xH47RHK93zcTzUL",
+      "target": "16PF6khT5_p$Z03P73inyv"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "3PfS__Y_DBAfq5naM6zD2Z",
+      "target": "0LM8GvGe$G3dlW4mZ4aA9R"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "0LM8GvGe$G3dlW4mZ4aA9R",
+      "target": "1Oms875aH3Wg$9l65H2ZGw"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "3jjW3rL656ex34Gws22EfM",
+      "target": "253rr8ORNAORFOx911Dvez"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "3jjW3rL656ex34Gws22EfM",
+      "target": "2lV07gym5YkPLv5gWQeAr4"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "253rr8ORNAORFOx911Dvez",
+      "target": "0pGAjlJMP3ifYPATVF5xAR"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "2lV07gym5YkPLv5gWQeAr4",
+      "target": "2qiPPF3FrF8OIqfrKiSUqm"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "3rPX_Juz59peXXY6wDJl18",
+      "target": "0seqbT9MlcQAX_K0YLzD86"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "3rPX_Juz59peXXY6wDJl18",
+      "target": "2NE9qKcWUF2uoVhRSqTd_a"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "3rPX_Juz59peXXY6wDJl18",
+      "target": "04RcXu1mKxpGnJw_7oRBLn"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "0seqbT9MlcQAX_K0YLzD86",
+      "target": "1srAI$R4T8ihLXSNHmUSET"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "2NE9qKcWUF2uoVhRSqTd_a",
+      "target": "0B1RwEzzP3CfME5NR$Vqh5"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "04RcXu1mKxpGnJw_7oRBLn",
+      "target": "2jTRqchjf7oB0yhQ6462T0"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "16DNNqzfP2thtfaOflvsKA",
+      "target": "1c0Yk5iLrVR4e3y5gEUEKa"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "16DNNqzfP2thtfaOflvsKA",
+      "target": "2uYaWLoMXGPW4zZLca_BWr"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "16DNNqzfP2thtfaOflvsKA",
+      "target": "1r_KIZSL381KWyrYQXOn52"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "1c0Yk5iLrVR4e3y5gEUEKa",
+      "target": "25nJxEpYf8LRDJNkMUVO0m"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "2uYaWLoMXGPW4zZLca_BWr",
+      "target": "3BFcylCsX74PQAoRAe5fNv"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "1r_KIZSL381KWyrYQXOn52",
+      "target": "1M$gxUrX1Fiwe3P64ww7U5"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "25fsbPyk15VvuXI$yNKenK",
+      "target": "2OW0PH61vS77xxyX1o74u8"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "25fsbPyk15VvuXI$yNKenK",
+      "target": "2cFXkmvNz6q8TXoCpAWu5Y"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "2OW0PH61vS77xxyX1o74u8",
+      "target": "13aSY79zb8fP4HApEJ0z_e"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "2cFXkmvNz6q8TXoCpAWu5Y",
+      "target": "2EQh_jhP1B_A_AMuSJc5E0"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "1bzfVsJqn8De5PukCrqylz",
+      "target": "1edW1mWMGQA1AyF6LZE0rZ"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "1bzfVsJqn8De5PukCrqylz",
+      "target": "0B6UMAQb_hdSR0n26dQbUu"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "1bzfVsJqn8De5PukCrqylz",
+      "target": "2o6xwVLCqc7RJXOAHbb1iq"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "1edW1mWMGQA1AyF6LZE0rZ",
+      "target": "1TAI4ouKX4Xx4lBDZIu5qM"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "0B6UMAQb_hdSR0n26dQbUu",
+      "target": "2Q9w7oRXP249jBobEMVqlZ"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "2o6xwVLCqc7RJXOAHbb1iq",
+      "target": "1DiYqhfzH9xxuJdVHwXCNa"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "0knNIAVBPBFvBy_m5QVHsU",
+      "target": "02A6FCU4lrAZ0mm$uvcVpb"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "02A6FCU4lrAZ0mm$uvcVpb",
+      "target": "1zOBw0Gej5Wf0QAJfHnOc0"
+    },
+    {
+      "relation": "voids",
+      "width": 1,
+      "source": "3VCarUKgH1buLo22Ozxe6J",
+      "target": "0e2iWM3ICUNVYAkmP5YImx"
+    },
+    {
+      "relation": "fills",
+      "width": 1,
+      "source": "0e2iWM3ICUNVYAkmP5YImx",
+      "target": "2ACmFFQhT1Ouf0x4YRUh9m"
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+0	markdown	899	# IFC Sample Model Analysis
+1	code	133	!pip install lark
+2	code	569	# Core IFC
+3	markdown	31	We can download a sample model.
+4	code	144	import requests
+5	markdown	349	The IFC sample model `AC20-FZK-Haus.ifc` is provided as part of the KIT IFC example dataset, developed by the Institute 
+6	markdown	40	Let's get started and analyse our model!
+7	code	206	import ifcopenshell.util.element
+8	markdown	35	## Inventory
+9	code	300	# Building Elements
+10	code	80	from google.colab import sheets
+11	markdown	38	## Properties
+12	code	234	# Get Element properties
+13	markdown	35	## Geometry
+14	code	106	# Geometry settings
+15	markdown	14	### Case: Wall
+16	code	152	# Get a wall
+17	markdown	14	### Case: Slab
+18	code	152	# Get a slab
+19	code	152	# Get elements
+20	code	146	# Display Data
+21	code	668	# Get all floor slabs
+22	markdown	13	### Preview
+23	code	242	# Helper: convert IFC shape to mesh
+24	code	110	# Vertices and Faces
+25	code	1255	# Extract mesh
+26	markdown	176	## Spatial hierarchy
+27	code	358	#Define Data Frame and Relationships
+28	markdown	2067	### Graphs
+29	code	2554	G = nx.DiGraph()
+30	code	919	# Design elements as Graphs
+31	code	1201	# Add wall → opening relationships
+32	code	265	# Display Interactive Graph
+33	code	230	# Download Graph
+34	markdown	45	## Classification
+35	code	1651	# Main classes to classify
+36	code	88	# Count by IFC class
+37	code	146	# Count by class + predefined type
+38	code	138	# Load-bearing classification
+39	code	79	# Export to CSV
+40	markdown	45	## GIS extraction
+41	code	966	# Footprints
+42	code	193	# GeoDataFrame (Georeferenced)
+43	markdown	11	### Display
+44	code	263	ax = gdf_footprints.plot(
+45	code	141	# Get IFC site location
+46	code	645	# Convert coordinates to decimals
+47	code	229	# Approximate georeferencing of Geometry
+48	code	150	#Export GeoJSON File
+49	markdown	1198	## Analysis & validation
+50	code	224	# Walls without IsExternal
+51	code	379	rows = []

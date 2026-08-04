@@ -1,0 +1,857 @@
+===== CELL 0 [markdown] =====
+# IFC Sample Model Analysis
+
+This notebook presents a structured exploration of Industry Foundation Classes (IFC) data, combining semantic, geometric, and spatial analysis within a reproducible computational workflow.
+
+The objective is to examine how building information models can be systematically queried, interpreted, and transformed into analysis-ready datasets for downstream applications such as GIS integration, validation, and exposure modeling.
+
+The workflow is organized into a sequence of analytical steps, progressing from basic inspection of model contents to higher-level interpretation and validation of building data.
+
+---
+
+### Outline
+
+- [Inventory](#inventory)
+- [Properties](#properties)
+- [Geometry](#geometry)
+- [Spatial hierarchy](#spatial-hierarchy)
+- [Classification](#classification)
+- [GIS extraction](#gis-extraction)
+- [Analysis & Validation](#analysis-validation)
+
+---
+
+===== CELL 1 [code] =====
+!pip install lark
+!pip install numpy
+!pip install shapely
+!pip install ifcopenshell
+!pip install networkx
+!pip install pyvis networkx
+
+===== CELL 2 [code] =====
+# Core IFC
+import ifcopenshell
+import ifcopenshell.geom
+import ifcopenshell.util.element
+
+
+# Data handling
+import numpy as np
+import pandas as pd
+
+# Visualization
+import matplotlib.pyplot as plt
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+# Graphs
+import networkx as nx
+from pyvis.network import Network
+from IPython.display import HTML, display
+
+import json
+from networkx.readwrite import json_graph
+
+# GIS / geometry
+import shapely.geometry as geom
+import geopandas as gpd
+from shapely.geometry import MultiPoint
+
+
+# Utilities
+import json
+import requests
+
+===== CELL 3 [markdown] =====
+We can download a sample model.
+
+===== CELL 4 [code] =====
+import requests
+
+r = requests.get("https://www.ifcwiki.org/images/e/e3/AC20-FZK-Haus.ifc")
+with open("model.ifc", "w") as f:
+    f.write(r.text)
+
+===== CELL 5 [markdown] =====
+The IFC sample model `AC20-FZK-Haus.ifc` is provided as part of the KIT IFC example dataset, developed by the Institute for Automation and Applied Informatics (IAI) at Karlsruhe Institute of Technology (KIT).
+
+It is distributed for unrestricted use and commonly referenced in IFC tutorials, including IfcOpenShell documentation and sample workflows.
+
+===== CELL 6 [markdown] =====
+Let's get started and analyse our model!
+
+===== CELL 7 [code] =====
+import ifcopenshell.util.element
+
+model = ifcopenshell.open("model.ifc") # Load our IFC model
+
+print(model.schema) # What's the IFC version?
+print(len(model.by_type("IfcWall"))) # How many walls are there?
+
+
+===== CELL 8 [markdown] =====
+## Inventory
+<a id="inventory"></a>
+
+===== CELL 9 [code] =====
+# Building Elements
+rows = []
+
+for e in model.by_type("IfcBuildingElement"):
+    rows.append({
+        "GlobalId": e.GlobalId,
+        "Class": e.is_a(),
+        "Name": e.Name,
+        "PredefinedType": getattr(e, "PredefinedType", None)
+    })
+
+df_inventory = pd.DataFrame(rows)
+df_inventory.head()
+
+===== CELL 10 [code] =====
+from google.colab import sheets
+sheet = sheets.InteractiveSheet(df=df_inventory)
+
+===== CELL 11 [markdown] =====
+## Properties
+<a id="properties"></a>
+
+
+===== CELL 12 [code] =====
+# Get Element properties
+element = model.by_type("IfcWall")[0]
+
+psets = ifcopenshell.util.element.get_psets(element)
+
+for pset, props in psets.items():
+    print("\n", pset)
+    for k, v in props.items():
+        print(" ", k, ":", v)
+
+===== CELL 13 [markdown] =====
+## Geometry
+<a id= "geometry"></a>
+
+
+===== CELL 14 [code] =====
+# Geometry settings
+settings = ifcopenshell.geom.settings()
+settings.set(settings.USE_WORLD_COORDS, True)
+
+
+===== CELL 15 [markdown] =====
+### Case: Wall
+
+===== CELL 16 [code] =====
+# Get a wall
+wall = model.by_type("IfcWall")[0]
+print("Picked Wall: ", wall)
+
+# Create shape
+wall_shape = ifcopenshell.geom.create_shape(settings, wall)
+
+===== CELL 17 [markdown] =====
+### Case: Slab
+
+===== CELL 18 [code] =====
+# Get a slab
+slab = model.by_type("IfcSlab")[0]
+print("Picked Slab: ", slab)
+
+# Create shape
+slab_shape = ifcopenshell.geom.create_shape(settings, slab)
+
+===== CELL 19 [code] =====
+# Get elements
+elements = model.by_type("IfcSlab")
+print("Number of slabs:", len(elements))
+
+# Display first element
+slab = elements[0]
+print(slab.Name)
+
+===== CELL 20 [code] =====
+# Display Data
+for slab in model.by_type("IfcSlab"):
+    print("ID:" , slab.GlobalId, "\nName: ", slab.Name, "\nTyp:" , slab.PredefinedType, "\n")
+
+===== CELL 21 [code] =====
+# Get all floor slabs
+floor_slabs = [
+    s for s in model.by_type("IfcSlab")
+    if getattr(s, "PredefinedType", None) == "FLOOR"
+]
+
+print(f"Found {len(floor_slabs)} FLOOR slabs")
+
+# Handle empty case
+if not floor_slabs:
+    print("No FLOOR slabs found in this model.")
+else:
+    # Preview first slab
+    slab = floor_slabs[0]
+
+    print("\n--- Example slab ---")
+    print("GlobalId:", slab.GlobalId)
+    print("Name:", slab.Name)
+    print("Type:", slab.PredefinedType)
+
+    # Loop summary (useful for overview)
+    print("\n--- All floor slabs ---")
+    for i, s in enumerate(floor_slabs[:10]):  # limit to first 10
+        print(f"{i+1}. {s.Name} ({s.GlobalId})")
+
+===== CELL 22 [markdown] =====
+### Preview
+
+
+
+===== CELL 23 [code] =====
+# Helper: convert IFC shape to mesh
+def get_mesh(shape):
+    verts = np.array(shape.geometry.verts).reshape(-1, 3)
+    faces = np.array(shape.geometry.faces).reshape(-1, 3)
+    triangles = [verts[f] for f in faces]
+    return verts, triangles
+
+===== CELL 24 [code] =====
+# Vertices and Faces
+wall_verts, wall_tris = get_mesh(wall_shape)
+slab_verts, slab_tris = get_mesh(slab_shape)
+
+===== CELL 25 [code] =====
+# Extract mesh
+def get_mesh(shape):
+    verts = np.array(shape.geometry.verts).reshape(-1, 3)
+    faces = np.array(shape.geometry.faces).reshape(-1, 3)
+    triangles = [verts[f] for f in faces]
+    return verts, triangles
+
+wall_verts, wall_tris = get_mesh(wall_shape)
+slab_verts, slab_tris = get_mesh(slab_shape)
+
+fig = plt.figure(figsize=(8, 8))
+ax = fig.add_subplot(111, projection="3d")
+
+# Slab first: more transparent
+slab_mesh = Poly3DCollection(
+    slab_tris,
+    alpha=0.25,
+    facecolor="orange",
+    edgecolor="darkorange",
+    linewidth=0.3
+)
+
+# Wall second: more opaque
+wall_mesh = Poly3DCollection(
+    wall_tris,
+    alpha=0.95,
+    facecolor="lightblue",
+    edgecolor="blue",
+    linewidth=0.5
+)
+
+ax.add_collection3d(slab_mesh)
+ax.add_collection3d(wall_mesh)
+
+all_verts = np.vstack([wall_verts, slab_verts])
+
+ax.set_xlim(all_verts[:, 0].min(), all_verts[:, 0].max())
+ax.set_ylim(all_verts[:, 1].min(), all_verts[:, 1].max())
+ax.set_zlim(all_verts[:, 2].min(), all_verts[:, 2].max())
+
+ax.set_box_aspect([
+    max(np.ptp(all_verts[:, 0]), 1e-3),
+    max(np.ptp(all_verts[:, 1]), 1e-3),
+    max(np.ptp(all_verts[:, 2]), 1e-3)
+])
+
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.set_zlabel("Z")
+ax.set_title("Wall and Slab Mesh Preview")
+
+plt.show()
+
+===== CELL 26 [markdown] =====
+## Spatial hierarchy
+<a id="spatial-hierarchy"></a>
+
+IFC is structured like:
+
+
+```
+Project
+ └── Site
+      └── Building
+           └── Storey
+                └── Elements
+```
+
+
+
+===== CELL 27 [code] =====
+#Define Data Frame and Relationships
+
+rows = []
+
+for rel in model.by_type("IfcRelContainedInSpatialStructure"):
+    storey = rel.RelatingStructure
+
+    for e in rel.RelatedElements:
+        rows.append({
+            "storey": storey.Name,
+            "element": e.is_a(),
+            "name": e.Name
+        })
+
+df_storey = pd.DataFrame(rows)
+df_storey.head()
+
+===== CELL 28 [markdown] =====
+### Graphs
+
+In addition to tabular and geometric analysis, IFC models can be interpreted as graphs, where building elements are represented as nodes and their relationships as edges.
+
+This graph-based representation enables the explicit visualization and analysis of structural, spatial, and semantic connections within the model. By mapping relationships such as spatial containment (e.g., storey → element) and element interactions (e.g., wall → opening → door), the building can be understood as a network rather than a collection of isolated objects.
+
+
+```
+IFC Relationships Structure
+
+IFC Model
+├── Spatial Structure (WHERE)
+│   ├── IfcRelAggregates
+│   │   └── Project → Site → Building → Storey
+│   ├── IfcRelContainedInSpatialStructure
+│   │   └── Storey → Elements
+│   └── IfcRelReferencedInSpatialStructure
+│       └── Secondary spatial references
+
+├── Element Decomposition (PART OF)
+│   ├── IfcRelAggregates
+│   │   └── Element → Sub-elements
+│   └── IfcRelNests
+│       └── Element → Components
+
+├── Openings & Hosting (EMBEDDED IN)
+│   ├── IfcRelVoidsElement
+│   │   └── Wall → Opening
+│   └── IfcRelFillsElement
+│       └── Opening → Door / Window
+
+├── Properties & Types (DESCRIBED BY)
+│   ├── IfcRelDefinesByProperties
+│   │   └── Element → Property Sets
+│   └── IfcRelDefinesByType
+│       └── Element → Type Object
+
+├── Materials & Classification (ASSOCIATED WITH)
+│   ├── IfcRelAssociatesMaterial
+│   │   └── Element → Material
+│   └── IfcRelAssociatesClassification
+│       └── Element → Classification System
+
+├── Connectivity (CONNECTED TO)
+│   ├── IfcRelConnectsElements
+│   ├── IfcRelConnectsPathElements
+│   └── IfcRelConnectsStructuralElement
+│       └── Element ↔ Element
+
+├── Assignments & Control (MANAGED BY)
+│   ├── IfcRelAssignsToGroup
+│   ├── IfcRelAssignsToProcess
+│   ├── IfcRelAssignsToActor
+│   └── IfcRelAssignsToControl
+│       └── Element → External context
+
+└── Special / Domain-Specific
+    ├── IfcRelCoversBldgElements
+    ├── IfcRelServicesBuildings
+    ├── IfcRelFlowControlElements
+    └── IfcRelInterferesElements
+```
+
+
+
+===== CELL 29 [code] =====
+G = nx.DiGraph()
+
+def node_label(e):
+    return f"{e.is_a()}: {e.Name or e.GlobalId[:8]}"
+
+def add_ifc_node(G, e, group=None):
+    G.add_node(
+        e.GlobalId,
+        label=node_label(e),
+        group=group or e.is_a(),
+        title=f"""
+        Type: {e.is_a()}
+        Name: {e.Name}
+        GlobalId: {e.GlobalId}
+        """
+    )
+
+# --------------------------------
+# 1. Storey → Walls / Slabs
+# --------------------------------
+for rel in model.by_type("IfcRelContainedInSpatialStructure"):
+    storey = rel.RelatingStructure
+
+    if not storey.is_a("IfcBuildingStorey"):
+        continue
+
+    add_ifc_node(G, storey, group="IfcBuildingStorey")
+
+    for e in rel.RelatedElements:
+        if e.is_a() in {"IfcWall", "IfcWallStandardCase", "IfcSlab"}:
+            add_ifc_node(G, e)
+            G.add_edge(storey.GlobalId, e.GlobalId, relation="contains")
+
+
+# --------------------------------
+# 2. Wall → Opening
+# --------------------------------
+for rel in model.by_type("IfcRelVoidsElement"):
+    wall = rel.RelatingBuildingElement
+    opening = rel.RelatedOpeningElement
+
+    if wall.is_a() in {"IfcWall", "IfcWallStandardCase"}:
+        add_ifc_node(G, wall)
+        add_ifc_node(G, opening, group="IfcOpeningElement")
+        G.add_edge(wall.GlobalId, opening.GlobalId, relation="voids")
+
+
+# --------------------------------
+# 3. Opening → Door / Window
+# --------------------------------
+for rel in model.by_type("IfcRelFillsElement"):
+    opening = rel.RelatingOpeningElement
+    element = rel.RelatedBuildingElement
+
+    if element.is_a() in {"IfcDoor", "IfcWindow"}:
+        add_ifc_node(G, opening, group="IfcOpeningElement")
+        add_ifc_node(G, element)
+        G.add_edge(opening.GlobalId, element.GlobalId, relation="fills")
+
+
+# --------------------------------
+# 4. Slab → Beam
+# Approximation: connect beams to slabs in same storey
+# --------------------------------
+storey_elements = {}
+
+for rel in model.by_type("IfcRelContainedInSpatialStructure"):
+    storey = rel.RelatingStructure
+
+    if not storey.is_a("IfcBuildingStorey"):
+        continue
+
+    slabs = [
+        e for e in rel.RelatedElements
+        if e.is_a() == "IfcSlab"
+    ]
+
+    beams = [
+        e for e in rel.RelatedElements
+        if e.is_a() == "IfcBeam"
+    ]
+
+    for slab in slabs:
+        add_ifc_node(G, slab)
+
+        for beam in beams:
+            add_ifc_node(G, beam)
+            G.add_edge(slab.GlobalId, beam.GlobalId, relation="same_storey_structural_relation")
+
+
+print("Nodes:", G.number_of_nodes())
+print("Edges:", G.number_of_edges())
+
+===== CELL 30 [code] =====
+# Design elements as Graphs
+G = nx.DiGraph()
+
+allowed = {"IfcWall", "IfcSlab", "IfcDoor", "IfcWindow", "IfcColumn", "IfcBeam"}
+
+for rel in model.by_type("IfcRelContainedInSpatialStructure"):
+    storey = rel.RelatingStructure
+    storey_id = storey.GlobalId
+    storey_label = f"{storey.is_a()}: {storey.Name}"
+
+    G.add_node(
+        storey_id,
+        label=storey_label,
+        group="storey",
+        title=storey_label
+    )
+
+    for e in rel.RelatedElements:
+        if e.is_a() in allowed:
+            element_id = e.GlobalId
+            element_label = f"{e.is_a()}: {e.Name}"
+
+            G.add_node(
+                element_id,
+                label=element_label,
+                group=e.is_a(),
+                title=f"""
+                Type: {e.is_a()}
+                Name: {e.Name}
+                GlobalId: {e.GlobalId}
+                """
+            )
+
+            G.add_edge(storey_id, element_id)
+
+===== CELL 31 [code] =====
+# Add wall → opening relationships
+for rel in model.by_type("IfcRelVoidsElement"):
+    wall = rel.RelatingBuildingElement
+    opening = rel.RelatedOpeningElement
+
+    if wall and opening:
+        G.add_node(
+            wall.GlobalId,
+            label=f"{wall.is_a()}: {wall.Name}",
+            group=wall.is_a(),
+            title=f"{wall.is_a()}<br>{wall.Name}<br>{wall.GlobalId}"
+        )
+
+        G.add_node(
+            opening.GlobalId,
+            label=f"{opening.is_a()}: {opening.Name}",
+            group="IfcOpeningElement",
+            title=f"{opening.is_a()}<br>{opening.Name}<br>{opening.GlobalId}"
+        )
+
+        G.add_edge(wall.GlobalId, opening.GlobalId, relation="voids")
+
+
+# Add opening → door/window relationships
+for rel in model.by_type("IfcRelFillsElement"):
+    opening = rel.RelatingOpeningElement
+    element = rel.RelatedBuildingElement
+
+    if opening and element:
+        G.add_node(
+            element.GlobalId,
+            label=f"{element.is_a()}: {element.Name}",
+            group=element.is_a(),
+            title=f"{element.is_a()}<br>{element.Name}<br>{element.GlobalId}"
+        )
+
+        G.add_edge(opening.GlobalId, element.GlobalId, relation="fills")
+
+===== CELL 32 [code] =====
+# Display Interactive Graph
+
+net = Network(
+    height="750px",
+    width="100%",
+    directed=True,
+    notebook=True,
+    cdn_resources="in_line"
+)
+
+net.from_nx(G)
+
+net.show_buttons(filter_=["physics"])
+
+net.show("ifc_graph.html")
+
+display(HTML("ifc_graph.html"))
+
+===== CELL 33 [code] =====
+# Download Graph
+
+# .html
+from google.colab import files
+files.download("ifc_graph.html")
+
+# .json
+data = json_graph.node_link_data(G)
+with open("ifc_graph.json", "w") as f:
+    json.dump(data, f)
+
+files.download("ifc_graph.json")
+
+===== CELL 34 [markdown] =====
+## Classification
+<a id="classification"></a>
+
+===== CELL 35 [code] =====
+# Main classes to classify
+classes = [
+    "IfcWall",
+    "IfcSlab",
+    "IfcDoor",
+    "IfcWindow",
+    "IfcColumn",
+    "IfcBeam",
+    "IfcStair",
+    "IfcRamp",
+    "IfcRoof",
+    "IfcSpace",
+]
+
+rows = []
+
+for cls in classes:
+    for e in model.by_type(cls):
+        psets = ifcopenshell.util.element.get_psets(e)
+
+        rows.append({
+            "GlobalId": e.GlobalId,
+            "Class": e.is_a(),
+            "Name": e.Name,
+            "ObjectType": getattr(e, "ObjectType", None),
+            "PredefinedType": getattr(e, "PredefinedType", None),
+
+            # Common useful semantic fields
+            "IsExternal": (
+                psets.get("Pset_WallCommon", {}).get("IsExternal")
+                or psets.get("Pset_DoorCommon", {}).get("IsExternal")
+                or psets.get("Pset_WindowCommon", {}).get("IsExternal")
+                or psets.get("Pset_SlabCommon", {}).get("IsExternal")
+            ),
+            "LoadBearing": (
+                psets.get("Pset_WallCommon", {}).get("LoadBearing")
+                or psets.get("Pset_SlabCommon", {}).get("LoadBearing")
+                or psets.get("Pset_ColumnCommon", {}).get("LoadBearing")
+                or psets.get("Pset_BeamCommon", {}).get("LoadBearing")
+            ),
+            "FireRating": (
+                psets.get("Pset_WallCommon", {}).get("FireRating")
+                or psets.get("Pset_DoorCommon", {}).get("FireRating")
+                or psets.get("Pset_WindowCommon", {}).get("FireRating")
+                or psets.get("Pset_SlabCommon", {}).get("FireRating")
+            ),
+        })
+
+df_classification = pd.DataFrame(rows)
+
+df_classification.head()
+
+===== CELL 36 [code] =====
+# Count by IFC class
+df_classification.groupby("Class").size().reset_index(name="count")
+
+===== CELL 37 [code] =====
+# Count by class + predefined type
+df_classification.groupby(
+    ["Class", "PredefinedType"],
+    dropna=False
+).size().reset_index(name="count")
+
+===== CELL 38 [code] =====
+# Load-bearing classification
+df_classification.groupby(
+    ["Class", "LoadBearing"],
+    dropna=False
+).size().reset_index(name="count")
+
+===== CELL 39 [code] =====
+# Export to CSV
+df_classification.to_csv("ifc_classification.csv", index=False)
+
+===== CELL 40 [markdown] =====
+## GIS extraction
+<a id="gis-extraction"></a>
+
+===== CELL 41 [code] =====
+# Footprints
+
+# Dataframe (Table)
+def element_footprint(element, settings):
+    shape = ifcopenshell.geom.create_shape(settings, element)
+    verts = np.array(shape.geometry.verts).reshape(-1, 3)
+    xy = verts[:, :2]
+
+    return MultiPoint(xy).convex_hull
+
+
+rows = []
+
+target_classes = ["IfcWall", "IfcSlab", "IfcDoor", "IfcWindow", "IfcColumn"]
+
+for cls in target_classes:
+    for e in model.by_type(cls):
+        try:
+            footprint = element_footprint(e, settings)
+
+            rows.append({
+                "GlobalId": e.GlobalId,
+                "Class": e.is_a(),
+                "Name": e.Name,
+                "PredefinedType": getattr(e, "PredefinedType", None),
+                "Area_2D": footprint.area,
+                "Length_2D": footprint.length,
+                "geometry": footprint
+            })
+
+        except Exception as err:
+            print("Skipped:", e.is_a(), e.Name, err)
+
+df_footprints = pd.DataFrame(rows)
+df_footprints.head()
+
+===== CELL 42 [code] =====
+# GeoDataFrame (Georeferenced)
+gdf_footprints = gpd.GeoDataFrame(
+    df_footprints,
+    geometry="geometry",
+    crs=None  # IFC local coordinates unless georeferenced
+)
+
+gdf_footprints.head()
+
+===== CELL 43 [markdown] =====
+### Display
+
+===== CELL 44 [code] =====
+ax = gdf_footprints.plot(
+    figsize=(10, 10),
+    column="Class",
+    legend=True,
+    alpha=0.5,
+    edgecolor="black",
+    linewidth=0.5
+)
+
+ax.set_title("IFC Element Footprints by Class")
+ax.set_xlabel("X")
+ax.set_ylabel("Y")
+ax.set_aspect("equal")
+plt.show()
+
+===== CELL 45 [code] =====
+# Get IFC site location
+site = model.by_type("IfcSite")[0]
+
+print("RefLatitude:", site.RefLatitude)
+print("RefLongitude:", site.RefLongitude)
+
+===== CELL 46 [code] =====
+# Convert coordinates to decimals
+
+def ifc_dms_to_decimal(dms):
+    """
+    IFC stores lat/lon as:
+    (degrees, minutes, seconds, millionths_of_seconds)
+    """
+    if dms is None:
+        return None
+
+    deg = dms[0]
+    minutes = dms[1] if len(dms) > 1 else 0
+    seconds = dms[2] if len(dms) > 2 else 0
+    millionths = dms[3] if len(dms) > 3 else 0
+
+    sign = -1 if deg < 0 else 1
+
+    return sign * (
+        abs(deg)
+        + minutes / 60
+        + (seconds + millionths / 1_000_000) / 3600
+    )
+
+
+lat = ifc_dms_to_decimal(site.RefLatitude)
+lon = ifc_dms_to_decimal(site.RefLongitude)
+
+print("Latitude:", lat)
+print("Longitude:", lon)
+
+===== CELL 47 [code] =====
+# Approximate georeferencing of Geometry
+gdf_geo = gdf_footprints.copy()
+
+gdf_geo["geometry"] = gdf_geo.geometry.translate(
+    xoff=lon,
+    yoff=lat
+)
+
+gdf_geo = gdf_geo.set_crs("EPSG:4326", allow_override=True)
+
+gdf_geo.head()
+
+===== CELL 48 [code] =====
+#Export GeoJSON File
+gdf_geo.to_file("ifc_footprints_georeferenced.geojson", driver="GeoJSON")
+
+files.download("ifc_footprints_georeferenced.geojson")
+
+===== CELL 49 [markdown] =====
+## Analysis & validation
+<a id="analysis-validation"> </a>
+
+One can check:
+
+### Data completeness
+- missing names
+- missing property sets
+- missing quantities
+- missing materials
+- missing classifications
+
+### Spatial structure
+- elements without storey assignment
+- broken project / site / building / storey hierarchy
+- spaces without boundaries
+- elements assigned to the wrong floor
+
+### Geometry quality
+- missing geometry
+- zero-area or zero-volume elements
+- very small or very large elements
+- overlapping elements
+- duplicated geometry
+- objects far away from the model origin
+
+### Semantic consistency
+- walls without `IsExternal`
+- slabs without `PredefinedType`
+- beams/columns without `LoadBearing`
+- doors/windows not related to walls
+- roofs classified as slabs
+- structural elements classified as generic objects
+
+### GIS / georeferencing
+- missing CRS
+- missing site coordinates
+- local coordinates not aligned to map coordinates
+- invalid exported GeoJSON geometries
+
+### Exposure modeling
+- missing material information
+- missing height or floor information
+- missing occupancy / space use
+- missing structural system hints
+- inconsistent external/internal envelope classification
+
+===== CELL 50 [code] =====
+# Walls without IsExternal
+
+for w in model.by_type("IfcWall"):
+    p = ifcopenshell.util.element.get_psets(w)
+
+    if "IsExternal" not in p.get("Pset_WallCommon", {}):
+        print("Missing IsExternal:", w.GlobalId, w.Name)
+
+===== CELL 51 [code] =====
+rows = []
+
+for e in model.by_type("IfcWall"):
+    psets = ifcopenshell.util.element.get_psets(e)
+
+    rows.append({
+        "id": e.GlobalId,
+        "type": e.is_a(),
+        "is_external": psets.get("Pset_WallCommon", {}).get("IsExternal"),
+        "load_bearing": psets.get("Pset_WallCommon", {}).get("LoadBearing"),
+    })
+
+df_exposure = pd.DataFrame(rows)
+df_exposure.head()
+

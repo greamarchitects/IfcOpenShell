@@ -1,0 +1,11 @@
+# Union of every `!pip install` line across the portfolio notebooks.
+# Install once locally with: pip install -r requirements.txt
+ifcopenshell
+numpy
+pandas
+matplotlib
+networkx
+pyvis
+shapely
+geopandas
+requests

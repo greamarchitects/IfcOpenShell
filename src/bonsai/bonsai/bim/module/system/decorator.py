@@ -15,9 +15,10 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Bonsai.  If not, see <http://www.gnu.org/licenses/>.
+#
+# This file was modified with the assistance of an AI coding tool.
 
 
-import bmesh
 import bpy
 import gpu
 from bpy.app.handlers import persistent
@@ -28,12 +29,6 @@ import bonsai.tool as tool
 
 ERROR_ELEMENTS_COLOR = (1, 0.2, 0.322, 1)  # RED
 UNSPECIAL_ELEMENT_COLOR = (0.2, 0.2, 0.2, 1)  # GREY
-
-
-def transparent_color(color, alpha=0.1):
-    color = [i for i in color]
-    color[3] = alpha
-    return color
 
 
 @persistent
@@ -78,15 +73,9 @@ class SystemDecorator:
         batch.draw(shader)
 
     def draw_faces(self, bm, vertices_coords):
-        """mutates original bm (triangulates it)
-        so the triangulation edges will be shown too
-        """
-        traingulated_bm = bm
-        bmesh.ops.triangulate(traingulated_bm, faces=traingulated_bm.faces)
-
-        face_indices = [[v.index for v in f.verts] for f in traingulated_bm.faces]
-        faces_color = transparent_color(self.addon_prefs.decorator_color_special)
-        self.draw_batch("TRIS", vertices_coords, faces_color, face_indices)
+        """Submit a non-mutating beauty-triangulated TRIS batch over ``bm``'s faces."""
+        faces_color = tool.Blender.transparent_color(self.addon_prefs.decorator_color_special)
+        tool.Blender.draw_bmesh_face_tris(bm, vertices_coords, faces_color, self.draw_batch)
 
     def __call__(self, context, get_custom_bmesh=None, draw_faces=False, exit_edit_mode_callback=None):
         self.addon_prefs = tool.Blender.get_addon_preferences()
@@ -133,13 +122,15 @@ class SystemDecorator:
         self.shader = gpu.shader.from_builtin("UNIFORM_COLOR")
         self.shader.bind()
 
-        self.draw_batch("LINES", all_vertices, transparent_color(unselected_elements_color), unselected_edges)
+        self.draw_batch(
+            "LINES", all_vertices, tool.Blender.transparent_color(unselected_elements_color), unselected_edges
+        )
         self.draw_batch("LINES", all_vertices, selected_elements_color, selected_edges)
         self.draw_batch("LINES", all_vertices, UNSPECIAL_ELEMENT_COLOR, arc_edges)
         self.draw_batch("LINES", all_vertices, special_elements_color, preview_edges)
         self.draw_batch("LINES", all_vertices, special_elements_color, roof_angle_edges)
 
-        self.draw_batch("POINTS", unselected_vertices, transparent_color(unselected_elements_color, 0.5))
+        self.draw_batch("POINTS", unselected_vertices, tool.Blender.transparent_color(unselected_elements_color, 0.5))
         self.draw_batch("POINTS", error_vertices, ERROR_ELEMENTS_COLOR)
         self.draw_batch("POINTS", special_vertices, special_elements_color)
         self.draw_batch("POINTS", selected_vertices, selected_elements_color)

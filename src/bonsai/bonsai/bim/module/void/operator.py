@@ -26,7 +26,7 @@ import bonsai.bim.handler
 import bonsai.core.geometry
 import bonsai.core.root
 import bonsai.tool as tool
-from bonsai.bim.module.model.opening import FilledOpeningGenerator
+from bonsai.bim.module.model.opening import FilledOpeningGenerator, is_filling_supported
 
 
 class AddOpening(bpy.types.Operator, tool.Ifc.Operator):
@@ -34,10 +34,20 @@ class AddOpening(bpy.types.Operator, tool.Ifc.Operator):
     bl_label = "Apply Opening"
     bl_options = {"REGISTER", "UNDO"}
     bl_description = (
-        "Apply opening objects to an Element.\n\n"
-        "The Element and the openings to be applied should be selected. The order of selection is not important.\n"
-        "Opening can be just a Blender mesh object."
+        "Cuts openings in a wall, slab, or roof using selected shape objects — "
+        "doors, windows, existing openings, or plain (non-IFC) meshes. "
+        "Selection order doesn't matter.\n\n"
+        "Doors and windows also fill the opening. Other IFC classes are currently "
+        "unsupported by the opening generator and get skipped with a warning.\n\n"
+        "Shift+click: keep each opening at its shape object's current position "
+        "instead of snapping to the wall."
     )
+
+    # Toggled by ``invoke`` when the user holds SHIFT during a gizmo / hotkey
+    # click. The filling-opening generator gates its snap-to-wall-axis block
+    # on this flag. HIDDEN + SKIP_SAVE so the flag doesn't surface in the F6
+    # redo panel or persist into saved keymaps.
+    preserve_placement: bpy.props.BoolProperty(default=False, options={"HIDDEN", "SKIP_SAVE"})
 
     @classmethod
     def poll(cls, context):
@@ -46,12 +56,23 @@ class AddOpening(bpy.types.Operator, tool.Ifc.Operator):
             return False
         return True
 
+    def invoke(self, context, event):
+        self.preserve_placement = bool(event.shift)
+        return self.execute(context)
+
     def _execute(self, context):
+        # Multi-opening drops on the same host fan out N update_representation
+        # writes + N switch_representation recuts without batching. Coalesce.
+        with tool.Geometry.batch_host_recut():
+            return self._add_openings(context)
+
+    def _add_openings(self, context):
         selected_objects = context.selected_objects
         target_object = selected_objects[0]
 
         opening_objects = [obj for obj in selected_objects if obj != target_object]
 
+        obj1 = ...
         for opening_obj in opening_objects:
             element1 = tool.Ifc.get_entity(target_object)
             obj1 = target_object
@@ -66,9 +87,20 @@ class AddOpening(bpy.types.Operator, tool.Ifc.Operator):
                     self.report({"INFO"}, "You can't add an opening to another opening.")
                     continue
                 elif not element1.is_a("IfcOpeningElement") and not element2.is_a("IfcOpeningElement"):
-                    if element1.is_a("IfcWindow") or element1.is_a("IfcDoor"):  # Add a fill to an element.
+                    if is_filling_supported(element1):  # Add a fill to an element.
                         obj1, obj2 = obj2, obj1
-                    FilledOpeningGenerator().generate(obj2, obj1, target=obj2.matrix_world.translation)
+                    elif not is_filling_supported(element2):
+                        self.report(
+                            {"INFO"},
+                            f"Cannot apply {element2.is_a()} as an opening — Bonsai currently supports only IfcDoor and IfcWindow as parametric fillings.",
+                        )
+                        continue
+                    FilledOpeningGenerator().generate(
+                        obj2,
+                        obj1,
+                        target=obj2.matrix_world.translation,
+                        preserve_placement=self.preserve_placement,
+                    )
                     continue
                 elif element1.is_a("IfcOpeningElement") or element2.is_a("IfcOpeningElement"):
                     if element1.is_a("IfcOpeningElement"):  # Reassign an opening to another element.
@@ -148,7 +180,7 @@ class AddOpening(bpy.types.Operator, tool.Ifc.Operator):
                             voided_obj.scale = (1.0, 1.0, 1.0)
                             tool.Ifc.finish_edit(voided_obj)
                         else:
-                            bpy.ops.bim.update_representation(obj=voided_obj.name)
+                            tool.Geometry.update_host_representation(voided_obj)
 
                     if tool.Ifc.is_moved(voided_obj):
                         bonsai.core.geometry.edit_object_placement(
@@ -157,12 +189,7 @@ class AddOpening(bpy.types.Operator, tool.Ifc.Operator):
 
                     representation = tool.Geometry.get_active_representation(voided_obj)
                     assert representation
-                    bonsai.core.geometry.switch_representation(
-                        tool.Ifc,
-                        tool.Geometry,
-                        obj=voided_obj,
-                        representation=representation,
-                    )
+                    tool.Geometry.recut_host(voided_obj, representation)
                 tool.Geometry.lock_scale(voided_obj)
 
             if not has_visible_openings:
@@ -170,6 +197,7 @@ class AddOpening(bpy.types.Operator, tool.Ifc.Operator):
                 bpy.data.objects.remove(obj2)
 
         tool.Model.purge_scene_openings()
+        assert obj1 is not ...
         context.view_layer.objects.active = obj1
         return {"FINISHED"}
 
@@ -200,12 +228,7 @@ class RemoveOpening(bpy.types.Operator, tool.Ifc.Operator):
             if building_obj and building_obj.data:
                 representation = tool.Geometry.get_active_representation(building_obj)
                 assert representation
-                bonsai.core.geometry.switch_representation(
-                    tool.Ifc,
-                    tool.Geometry,
-                    obj=building_obj,
-                    representation=representation,
-                )
+                tool.Geometry.recut_host(building_obj, representation)
         tool.Geometry.unlock_scale_object_with_openings(obj)
         tool.Geometry.clear_cache(element)
         return {"FINISHED"}

@@ -15,12 +15,14 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Bonsai.  If not, see <http://www.gnu.org/licenses/>.
+#
+# This file was modified with the assistance of an AI coding tool.
 
 from __future__ import annotations
 
 import contextlib
 import importlib
-import json
+import math
 import os
 import platform
 import subprocess
@@ -28,7 +30,15 @@ import sys
 import tempfile
 import traceback
 import types
-from collections.abc import Callable, Generator, Iterable, Sequence, Sized
+from collections.abc import (
+    Callable,
+    Generator,
+    Iterable,
+    Iterator,
+    Mapping,
+    Sequence,
+    Sized,
+)
 from datetime import datetime
 from functools import cache, lru_cache
 from pathlib import Path
@@ -45,22 +55,23 @@ from typing import (
 
 import bmesh
 import bpy
-import ifcopenshell.api
+import gpu
 import ifcopenshell.util.element
 import numpy as np
 import numpy.typing as npt
+from gpu_extras.batch import batch_for_shader
 from ifcopenshell import entity_instance
 from mathutils import Matrix, Vector
 
 import bonsai.bim
 import bonsai.core.tool
 import bonsai.tool as tool
-from bonsai.bim.ifc import IFC_CONNECTED_TYPE
 
 if TYPE_CHECKING:
     import bpy.stub_internal.rna_enums as rna_enums
     from sun_position.properties import SunPosProperties
 
+    from bonsai.bim.ifc import IFC_CONNECTED_TYPE
     from bonsai.bim.module.attribute.prop import BIMAttributeProperties
     from bonsai.bim.module.constraint.prop import (
         BIMConstraintProperties,
@@ -96,6 +107,19 @@ VIEWPORT_ATTRIBUTES = [
 ]
 
 OBJECT_DATA_TYPE = Union[bpy.types.Mesh, bpy.types.Curve, bpy.types.Camera]
+
+_RAILING_MODIFIER_IFC_CLASSES = ("IfcRailing", "IfcRailingType")
+_STAIR_MODIFIER_IFC_CLASSES = (
+    "IfcStairFlight",
+    "IfcStairFlightType",
+    "IfcMember",
+    "IfcMemberType",
+    "IfcStair",
+    "IfcStairType",
+)
+_WINDOW_MODIFIER_IFC_CLASSES = ("IfcWindow", "IfcWindowType", "IfcWindowStyle")
+_DOOR_MODIFIER_IFC_CLASSES = ("IfcDoor", "IfcDoorType", "IfcDoorStyle")
+_ROOF_MODIFIER_IFC_CLASSES = ("IfcRoof", "IfcRoofType")
 
 
 class Blender(bonsai.core.tool.Blender):
@@ -216,15 +240,22 @@ class Blender(bonsai.core.tool.Blender):
 
     @classmethod
     def get_active_object(cls, is_selected: bool = False) -> Union[bpy.types.Object, None]:
-        """Gets the active object
+        """Return the active object, or ``None`` when the current context
+        exposes neither ``active_object`` nor a ``view_layer`` (stripped
+        operator contexts).
 
         :param is_selected: If true, the active object also needs to be selected.
         """
-        if obj := (getattr(bpy.context, "active_object", None) or bpy.context.view_layer.objects.active):
-            if not is_selected:
-                return obj
-            if obj.select_get():
-                return obj
+        obj = getattr(bpy.context, "active_object", None)
+        if obj is None:
+            view_layer = getattr(bpy.context, "view_layer", None)
+            if view_layer is not None:
+                obj = view_layer.objects.active
+        if obj is None:
+            return None
+        if is_selected and not obj.select_get():
+            return None
+        return obj
 
     @classmethod
     def get_selected_objects(cls, include_active: bool = True) -> set[bpy.types.Object]:
@@ -416,6 +447,316 @@ class Blender(bonsai.core.tool.Blender):
             bpy.ops.wm.tool_set_by_id(name=tool_name)
 
     @classmethod
+    def are_viewport_gizmos_enabled(cls) -> bool:
+        """Central gate every Bonsai gizmo poll / decorator draw checks before
+        rendering. Centralises the read of
+        ``gizmos.draw_gizmos_in_3d_viewport`` from addon preferences."""
+        return cls.get_addon_preferences().gizmos.draw_gizmos_in_3d_viewport
+
+    class DecoratorColors(NamedTuple):
+        selected: tuple
+        unselected: tuple
+        special: tuple
+        error: tuple
+        background: tuple
+
+    @classmethod
+    def get_decorator_colors(cls) -> Blender.DecoratorColors:
+        """The five ``decorator_color_*`` fields read together so each viewport
+        decorator's draw callback resolves them in one call instead of five."""
+        prefs = cls.get_addon_preferences()
+        return cls.DecoratorColors(
+            selected=prefs.decorator_color_selected,
+            unselected=prefs.decorator_color_unselected,
+            special=prefs.decorator_color_special,
+            error=prefs.decorator_color_error,
+            background=prefs.decorator_color_background,
+        )
+
+    class ViewportDecorator:
+        """Shared ``SpaceView3D.draw_handler_add`` lifecycle for feature decorators.
+
+        Single-handler subclasses set ``draw_method`` (default ``"draw"``); the
+        handler binds at ``POST_VIEW``. Multi-handler subclasses set
+        ``draw_methods`` to a tuple of ``(method_name, phase)`` pairs; when it
+        is non-``None`` it supersedes ``draw_method``.
+
+        Decorators whose ``install`` must accept extra arguments (e.g. a callback
+        or a precomputed bmesh) override ``install`` themselves."""
+
+        draw_method: str = "draw"
+        draw_methods: tuple[tuple[str, str], ...] | None = None
+
+        def __init_subclass__(cls, **kwargs):
+            super().__init_subclass__(**kwargs)
+            cls.handlers = []
+            cls.is_installed = False
+            # Fail loudly at class-definition time if draw_method / draw_methods
+            # names an attribute the class doesn't expose. Without this, a typo
+            # only surfaces on the first redraw — as a silent missing-attribute
+            # handler — which may be far from the offending declaration.
+            method_names = (
+                tuple(name for name, _phase in cls.draw_methods) if cls.draw_methods is not None else (cls.draw_method,)
+            )
+            for name in method_names:
+                if getattr(cls, name, None) is None:
+                    raise TypeError(f"{cls.__name__}: draw method {name!r} is declared but not defined on the class")
+
+        @classmethod
+        def install(cls, context: bpy.types.Context) -> None:
+            if cls.is_installed:
+                cls.uninstall()
+            handler = cls()
+            bindings = cls.draw_methods if cls.draw_methods is not None else ((cls.draw_method, "POST_VIEW"),)
+            # Rollback partial registrations on any draw_handler_add failure, so
+            # cls.handlers never ends up holding a half-installed set.
+            added: list = []
+            try:
+                for method_name, phase in bindings:
+                    added.append(
+                        bpy.types.SpaceView3D.draw_handler_add(
+                            getattr(handler, method_name), (context,), "WINDOW", phase
+                        )
+                    )
+            except Exception:
+                for h in added:
+                    try:
+                        bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+                    except ValueError:
+                        pass
+                raise
+            cls.handlers = added
+            cls.is_installed = True
+
+        @classmethod
+        def uninstall(cls) -> None:
+            for h in cls.handlers:
+                try:
+                    bpy.types.SpaceView3D.draw_handler_remove(h, "WINDOW")
+                except ValueError:
+                    pass
+            cls.handlers.clear()
+            cls.is_installed = False
+
+        def draw_batch(self, shader_type, content_pos, color, indices=None):
+            """Submit a GPU batch through ``self.line_shader`` (for ``"LINES"``)
+            or ``self.shader`` (for any other primitive). Skips empty batches
+            via ``validate_shader_batch_data`` so Blender 4.4+ doesn't crash on
+            empty ``indices``. Subclasses bind both shaders in their draw method
+            before calling this helper."""
+            if not Blender.validate_shader_batch_data(content_pos, indices):
+                return
+            shader = self.line_shader if shader_type == "LINES" else self.shader
+            batch = batch_for_shader(shader, shader_type, {"pos": content_pos}, indices=indices)
+            shader.uniform_float("color", color)
+            batch.draw(shader)
+
+        @staticmethod
+        def _lookup_active_instance(gizmo_cls: type, context: bpy.types.Context) -> Optional[Any]:
+            """Return the live ``GizmoGroup`` instance registered under
+            ``context.region``, or ``None`` if there isn't one. The per-region
+            weakref dict on the gizmo class is populated by ``setup()``; multi-
+            viewport setups put one entry per region in it so each region's
+            decorator sees only its own region's hover state."""
+            instances = getattr(gizmo_cls, "_active_instances", None)
+            if not instances:
+                return None
+            region = getattr(context, "region", None)
+            if region is None:
+                return None
+            ref = instances.get(region.as_pointer())
+            if ref is None:
+                return None
+            return ref()
+
+        def _cursor_icon_hovered(self, gizmo_cls: type, attr_name: str, context: bpy.types.Context) -> bool:
+            """True iff the gizmo group instance in the current region exposes a gizmo
+            under ``attr_name`` that reports as highlighted. Any access exception is
+            swallowed so a transient bpy-state hiccup never breaks the draw loop."""
+            inst = self._lookup_active_instance(gizmo_cls, context)
+            if inst is None:
+                return False
+            try:
+                return bool(getattr(inst, attr_name).is_highlight)
+            except (AttributeError, ReferenceError):
+                return False
+
+        @classmethod
+        def sync_all(
+            cls,
+            context: bpy.types.Context,
+            enabled: Mapping[type[Blender.ViewportDecorator], bool],
+        ) -> None:
+            """Drive each listed decorator to its desired install state in one call.
+
+            Each entry whose value is ``True`` ends up installed; each entry whose
+            value is ``False`` ends up uninstalled. Pass ``True`` for always-on
+            overlays so they survive subsequent file loads."""
+            for decorator_cls, should_install in enabled.items():
+                if should_install:
+                    decorator_cls.install(context)
+                else:
+                    decorator_cls.uninstall()
+
+    # Bonsai overrides Blender's default move/duplicate keymaps with macros
+    # that wrap TRANSFORM_OT_translate. While a macro is the outer modal
+    # entry, the inner TRANSFORM_OT_translate does not surface in
+    # window.modal_operators — the macro's own idname does. The ``BIM_OT_``
+    # prefix is what Blender returns from ``bl_idname`` at runtime (the
+    # class declaration uses the dotted ``bim.`` form).
+    BONSAI_TRANSFORM_MACROS: frozenset[str] = frozenset(
+        {
+            "BIM_OT_override_move_macro",  # G key
+            "BIM_OT_override_object_duplicate_move_macro",  # Shift+D
+            "BIM_OT_override_object_duplicate_move_linked_macro",  # Alt+D
+            "BIM_OT_object_duplicate_move_linked_aggregate_macro",  # Ctrl+Shift+D
+        }
+    )
+
+    @classmethod
+    def is_transform_modal_active(cls, context: bpy.types.Context) -> bool:
+        """True iff a Blender transform modal (G/R/S and siblings, including
+        Bonsai's macro overrides) is currently driving per-frame
+        ``matrix_world`` updates. Reads ``window.modal_operators`` — the
+        Blender 4.2+ collection of running modal operators. Callers gate
+        per-frame side effects (gizmo positioning, IFC persistence, etc.)
+        on this so they don't fire during the drag.
+
+        Falls back to scanning every window in the window manager when
+        ``context.window`` is ``None`` — depsgraph callbacks run with a
+        limited context where ``context.window`` is typically missing,
+        but the modal is still active on one of the WM's windows.
+        """
+        window = getattr(context, "window", None)
+        if window is not None and getattr(window, "modal_operators", None):
+            windows = [window]
+        else:
+            wm = getattr(context, "window_manager", None) or bpy.context.window_manager
+            if wm is None:
+                return False
+            windows = list(wm.windows)
+        for w in windows:
+            modal_ops = getattr(w, "modal_operators", None)
+            if not modal_ops:
+                continue
+            for op in modal_ops:
+                idname = op.bl_idname
+                if idname.startswith("TRANSFORM_OT_") or idname in cls.BONSAI_TRANSFORM_MACROS:
+                    return True
+        return False
+
+    @classmethod
+    def is_in_edit_mode(cls, context: Optional[bpy.types.Context] = None) -> bool:
+        """True iff the active object is in any edit-style mode.
+
+        Catches every ``EDIT_*`` variant (mesh, curve, armature,
+        metaball, lattice, surface, text, grease pencil). Defaults to
+        ``OBJECT`` when the mode attribute is missing so background-mode
+        callers (no UI context) don't false-positive.
+        """
+        ctx = context if context is not None else bpy.context
+        mode = getattr(ctx, "mode", "OBJECT")
+        return mode.startswith("EDIT_")
+
+    @classmethod
+    def iter_view3d_regions(cls) -> Iterator[tuple[bpy.types.Area, bpy.types.Region, bpy.types.RegionView3D]]:
+        """Yield ``(area, region, region_3d)`` for every WINDOW region in every 3D viewport.
+
+        Useful for features that need to act on every visible 3D viewport
+        (clip planes, draw handlers, region redraw fanout). Empty
+        generator when ``bpy.context.screen`` is unavailable (shutdown,
+        background mode without a screen).
+        """
+        screen = getattr(getattr(bpy, "context", None), "screen", None)
+        if screen is None:
+            return
+        for area in screen.areas:
+            if area.type != "VIEW_3D":
+                continue
+            for region in area.regions:
+                if region.type != "WINDOW":
+                    continue
+                region_3d = getattr(region, "data", None)
+                if region_3d is None:
+                    continue
+                yield area, region, region_3d
+
+    @classmethod
+    def get_or_create_collection(cls, scene: bpy.types.Scene, name: str) -> bpy.types.Collection:
+        """Return the named collection, creating + linking it to ``scene`` if absent."""
+        collection = bpy.data.collections.get(name)
+        if collection is None:
+            collection = bpy.data.collections.new(name)
+            scene.collection.children.link(collection)
+        return collection
+
+    @classmethod
+    def serialize_matrix(cls, matrix: Matrix) -> str:
+        """Serialize a 4x4 matrix as a 16-float comma-separated string.
+
+        Round-trip pair with :meth:`deserialize_matrix`. Used for storing
+        a matrix in an IFC pset string property without losing precision
+        (``%.9g`` carries ~9 significant digits, enough for ``float32``
+        round-trip).
+        """
+        return ",".join(f"{matrix[r][c]:.9g}" for r in range(4) for c in range(4))
+
+    @classmethod
+    def deserialize_matrix(cls, text: str) -> Matrix:
+        """Inverse of :meth:`serialize_matrix`."""
+        floats = [float(v) for v in text.split(",")]
+        return Matrix([tuple(floats[r * 4 : r * 4 + 4]) for r in range(4)])
+
+    @classmethod
+    def hash_matrix(cls, matrix: Matrix) -> int:
+        """Hash a 4x4 matrix by its 16 floats. Useful as a cache key."""
+        return hash(tuple(matrix[r][c] for r in range(4) for c in range(4)))
+
+    @classmethod
+    def is_view_top_down(cls, context: bpy.types.Context, threshold: float = 0.9659) -> bool:
+        """True when the viewport camera is looking ~straight down (or up) the world Z axis.
+
+        Default threshold of 0.9659 = cos(15°) — a 15° tilt cone around ±world Z.
+        Above the threshold the world-Z axis projects to a small fraction of its
+        true length on screen, so callers that lay icons or markers out along
+        world Z should switch to a screen-space offset and any gizmo whose intent
+        is specifically "vertical" loses its visual cue. The cone is kept narrow
+        so vertical-intent gizmos stay visible across the typical orbit range of
+        3D viewport work and drop out only near genuine plan view."""
+        rv3d = context.region_data
+        if rv3d is None:
+            return False
+        view_forward = Vector(rv3d.view_matrix.inverted().col[2][:3]).normalized()
+        return abs(view_forward.z) > threshold
+
+    @classmethod
+    def top_down_factor(cls, context: bpy.types.Context, threshold: float = 0.9659) -> float:
+        """Continuous 0–1 ramp matching ``is_view_top_down``'s cone: 0 outside the
+        cone, ramping linearly to 1 at strict alignment with world Z. Callers that
+        want a proportional effect (an icon-stack lift growing as the view
+        approaches plan) use this in place of the boolean to avoid a one-frame
+        visual jump as the camera crosses the threshold."""
+        rv3d = context.region_data
+        if rv3d is None:
+            return 0.0
+        view_forward = Vector(rv3d.view_matrix.inverted().col[2][:3]).normalized()
+        alignment = abs(view_forward.z)
+        if alignment <= threshold:
+            return 0.0
+        return (alignment - threshold) / (1.0 - threshold)
+
+    @classmethod
+    def get_screen_up_world(cls, context: bpy.types.Context) -> Vector:
+        """World-space direction corresponding to the camera's up axis (screen-vertical).
+
+        Returns ``+Y`` when region data is unavailable so callers can compute an
+        offset without a guard branch."""
+        rv3d = context.region_data
+        if rv3d is None:
+            return Vector((0.0, 1.0, 0.0))
+        return Vector(rv3d.view_matrix.inverted().col[1][:3]).normalized()
+
+    @classmethod
     def get_shader_editor_context(cls) -> Union[dict[str, Any], None]:
         for screen in bpy.data.screens:
             for area in screen.areas:
@@ -463,6 +804,40 @@ class Blender(bonsai.core.tool.Blender):
         shader_editor.pin = previous_pin_setting
 
     @classmethod
+    def copy_node_graph_additive(
+        cls, material_to: bpy.types.Material, material_from: bpy.types.Material
+    ) -> bpy.types.ShaderNodeOutputMaterial | None:
+        """Paste nodes from material_from alongside the existing nodes in material_to.
+
+        Unlike copy_node_graph this does NOT clear the existing node tree first.
+        Returns the OUTPUT_MATERIAL node that was added from material_from, or None.
+        """
+        temp_override = cls.get_shader_editor_context()
+        shader_editor = temp_override["space"]
+
+        before_names = {n.name for n in material_to.node_tree.nodes}
+
+        previous_pin_setting = shader_editor.pin
+        shader_editor.pin = True
+        shader_editor.node_tree = material_from.node_tree
+
+        for node in material_from.node_tree.nodes:
+            node.select = True
+        with bpy.context.temp_override(**temp_override):
+            bpy.ops.node.clipboard_copy()
+
+        shader_editor.node_tree = material_to.node_tree
+        with bpy.context.temp_override(**temp_override):
+            bpy.ops.node.clipboard_paste(offset=(0, 0))
+
+        shader_editor.pin = previous_pin_setting
+
+        for node in material_to.node_tree.nodes:
+            if node.name not in before_names and node.type == "OUTPUT_MATERIAL":
+                return node
+        return None
+
+    @classmethod
     def get_material_node(
         cls, blender_material: bpy.types.Material, node_type: str, kwargs: Optional[dict] = {}
     ) -> Union[bpy.types.ShaderNode, None]:
@@ -484,9 +859,13 @@ class Blender(bonsai.core.tool.Blender):
 
     @classmethod
     def update_all_viewports(cls, context: bpy.types.Context | None = None) -> None:
+        """Tag every visible 3D viewport for redraw. Silent no-op when no
+        screen attached (background mode, plug-out, mid-load_post)."""
         context = context or bpy.context
-        assert context.screen
-        for area in context.screen.areas:
+        screen = getattr(context, "screen", None)
+        if screen is None:
+            return
+        for area in screen.areas:
             if area.type == "VIEW_3D":
                 area.tag_redraw()
 
@@ -635,10 +1014,11 @@ class Blender(bonsai.core.tool.Blender):
         op_text = "" if ui_context == "TOOL_HEADER" else text
         modifier_icon, modifier_str = cls.KEY_MODIFIERS.get(modifier, ("NONE", ""))
 
-        row = layout if ui_context == "TOOL_HEADER" else layout.row(align=True)
         module = sys.modules[module_name]
         icon_previews: Union[bpy.utils.previews.ImagePreviewCollection, None]
         icon_previews = getattr(module, "custom_icon_previews", None)
+
+        row = layout if ui_context == "TOOL_HEADER" else layout.row(align=True)
         if icon_previews:
             custom_icon = icon_previews.get(text.upper().replace(" ", "_"), icon_previews["IFC"]).icon_id
             op = row.operator(operator_to_use, text=op_text, icon_value=custom_icon)
@@ -646,6 +1026,7 @@ class Blender(bonsai.core.tool.Blender):
             op = row.operator(operator_to_use, text=op_text)
         if ui_context != "TOOL_HEADER":
             row.label(text="", icon=modifier_icon)
+            row.separator(factor=1)
             row.label(text="", icon=f"EVENT_{key}")
 
         if operator_to_use == hotkey_operator:
@@ -678,18 +1059,56 @@ class Blender(bonsai.core.tool.Blender):
         #     ( 1.0,  1.0, -1.0),        # 7
         # ]
         bound_box = obj.bound_box
+        min_pt = Vector(bound_box[0])
+        max_pt = Vector(bound_box[6])
         bbox_dict = {
-            "min_x": bound_box[0][0],
-            "max_x": bound_box[6][0],
-            "min_y": bound_box[0][1],
-            "max_y": bound_box[6][1],
-            "min_z": bound_box[0][2],
-            "max_z": bound_box[6][2],
-            "min_point": Vector(bound_box[0]),
-            "max_point": Vector(bound_box[6]),
-            "center": (Vector(bound_box[6]) + Vector(bound_box[0])) / 2,
+            "min_x": min_pt.x,
+            "max_x": max_pt.x,
+            "min_y": min_pt.y,
+            "max_y": max_pt.y,
+            "min_z": min_pt.z,
+            "max_z": max_pt.z,
+            "min_point": min_pt,
+            "max_point": max_pt,
+            "center": (max_pt + min_pt) / 2,
+            # Intrinsic per-axis size in object-local space. Distinct from
+            # ``obj.dimensions``, which folds object-level scale into its
+            # output; this is the raw mesh bbox extent.
+            "dimensions": (max_pt.x - min_pt.x, max_pt.y - min_pt.y, max_pt.z - min_pt.z),
         }
         return bbox_dict
+
+    @classmethod
+    def get_object_world_bounding_box(cls, obj: bpy.types.Object) -> dict[str, Union[float, Vector]]:
+        """Same shape as ``get_object_bounding_box`` but with ``matrix_world``
+        applied — extents are computed across the 8 transformed corners, so
+        a rotated or scaled object reports its actual world-axis AABB rather
+        than the misleading transform of the local-space corners.
+
+        ``bound_box[0]`` / ``bound_box[6]`` are the local min/max corners but
+        do NOT correspond to the world AABB extremes once the object is
+        rotated, so min/max must be taken per-axis across all 8 corners."""
+        corners = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
+        xs = [c.x for c in corners]
+        ys = [c.y for c in corners]
+        zs = [c.z for c in corners]
+        min_point = Vector((min(xs), min(ys), min(zs)))
+        max_point = Vector((max(xs), max(ys), max(zs)))
+        return {
+            "min_x": min_point.x,
+            "max_x": max_point.x,
+            "min_y": min_point.y,
+            "max_y": max_point.y,
+            "min_z": min_point.z,
+            "max_z": max_point.z,
+            "min_point": min_point,
+            "max_point": max_point,
+            "center": (min_point + max_point) / 2,
+            # World-axis-aligned per-axis size. For rotated objects this is
+            # the AABB extent, not the intrinsic mesh size (use the local
+            # variant for that).
+            "dimensions": (max_point.x - min_point.x, max_point.y - min_point.y, max_point.z - min_point.z),
+        }
 
     @classmethod
     def select_and_activate_single_object(cls, context: bpy.types.Context, active_object: bpy.types.Object) -> None:
@@ -1026,7 +1445,10 @@ class Blender(bonsai.core.tool.Blender):
 
     @classmethod
     def get_object_from_guid(cls, guid: str) -> Union[bpy.types.Object, None]:
-        element = tool.Ifc.get().by_guid(guid)
+        try:
+            element = tool.Ifc.get().by_guid(guid)
+        except RuntimeError:
+            return None
         obj = tool.Ifc.get_object(element)
         if obj:
             return obj
@@ -1137,20 +1559,22 @@ class Blender(bonsai.core.tool.Blender):
 
             :return: True if an action was taken, False otherwise
             """
-            if cls.is_roof(element):
-                if cls.is_editing_roof_parameters(obj):
-                    bpy.ops.bim.finish_editing_roof()
+            # roof and railing both finalize then drop into path-edit mode — handle
+            # them before the generic finish dispatch so the path transition runs.
+            if tool.Parametric.is_roof(element):
+                if tool.Parametric.ROOF.is_editing(obj):
+                    tool.Parametric.run_bim_op(tool.Parametric.ROOF.finish_op)
                 bpy.ops.bim.enable_editing_roof_path()
-            elif cls.is_railing(element):
-                if cls.is_editing_railing_parameters(obj):
-                    bpy.ops.bim.finish_editing_railing()
+            elif tool.Parametric.is_railing(element):
+                if tool.Parametric.RAILING.is_editing(obj):
+                    tool.Parametric.run_bim_op(tool.Parametric.RAILING.finish_op)
                 bpy.ops.bim.enable_editing_railing_path()
-            elif cls.is_editing_stair_parameters(obj):
-                bpy.ops.bim.finish_editing_stair()
-            elif cls.is_editing_door_parameters(obj):
-                bpy.ops.bim.finish_editing_door()
-            elif cls.is_editing_window_parameters(obj):
-                bpy.ops.bim.finish_editing_window()
+            elif feature := tool.Parametric.is_object_editing(obj):
+                tool.Parametric.run_bim_op(feature.finish_op)
+            elif tool.Parametric.is_wall(element):
+                # Placed after the generic finish dispatch so the TAB toggle splits:
+                # wall already editing → finish above; wall not editing → enter here.
+                bpy.ops.bim.enable_editing_wall()
             else:
                 return False
             return True
@@ -1161,68 +1585,112 @@ class Blender(bonsai.core.tool.Blender):
 
             :return: True if an action was taken, False otherwise
             """
+            # Path-edit modes are distinct from parametric draft modes; handle them first.
             if cls.is_editing_railing_path(obj):
                 bpy.ops.bim.cancel_editing_railing_path()
             elif cls.is_editing_roof_path(obj):
                 bpy.ops.bim.cancel_editing_roof_path()
-            elif cls.is_editing_railing_parameters(obj):
-                bpy.ops.bim.cancel_editing_railing()
-            elif cls.is_editing_door_parameters(obj):
-                bpy.ops.bim.cancel_editing_door()
-            elif cls.is_editing_window_parameters(obj):
-                bpy.ops.bim.cancel_editing_window()
-            elif cls.is_editing_roof_parameters(obj):
-                bpy.ops.bim.cancel_editing_roof()
-            elif cls.is_editing_stair_parameters(obj):
-                bpy.ops.bim.cancel_editing_stair()
+            elif feature := tool.Parametric.is_object_editing(obj):
+                tool.Parametric.run_bim_op(feature.cancel_op)
             else:
                 return False
             return True
 
         @classmethod
         def is_eligible_for_railing_modifier(cls, obj: bpy.types.Object) -> bool:
-            return tool.Blender.is_object_an_ifc_class(obj, ("IfcRailing", "IfcRailingType"))
+            return tool.Blender.is_object_an_ifc_class(obj, _RAILING_MODIFIER_IFC_CLASSES)
 
         @classmethod
         def is_eligible_for_stair_modifier(cls, obj: bpy.types.Object) -> bool:
-            return tool.Blender.is_object_an_ifc_class(
-                obj, ("IfcStairFlight", "IfcStairFlightType", "IfcMember", "IfcMemberType", "IfcStair", "IfcStairType")
-            )
+            return tool.Blender.is_object_an_ifc_class(obj, _STAIR_MODIFIER_IFC_CLASSES)
 
         @classmethod
         def is_eligible_for_window_modifier(cls, obj: bpy.types.Object) -> bool:
-            return tool.Blender.is_object_an_ifc_class(obj, ("IfcWindow", "IfcWindowType", "IfcWindowStyle"))
+            return tool.Blender.is_object_an_ifc_class(obj, _WINDOW_MODIFIER_IFC_CLASSES)
 
         @classmethod
         def is_eligible_for_door_modifier(cls, obj: bpy.types.Object) -> bool:
-            return tool.Blender.is_object_an_ifc_class(obj, ("IfcDoor", "IfcDoorType", "IfcDoorStyle"))
+            return tool.Blender.is_object_an_ifc_class(obj, _DOOR_MODIFIER_IFC_CLASSES)
 
         @classmethod
         def is_eligible_for_roof_modifier(cls, obj: bpy.types.Object) -> bool:
-            return tool.Blender.is_object_an_ifc_class(obj, ("IfcRoof", "IfcRoofType"))
+            return tool.Blender.is_object_an_ifc_class(obj, _ROOF_MODIFIER_IFC_CLASSES)
 
         @classmethod
-        def is_railing(cls, element: entity_instance) -> bool:
-            return tool.Pset.get_element_pset(element, "BBIM_Railing")
+        def is_array_child(cls, element: entity_instance) -> bool:
+            """True if element is a CHILD of a Bonsai parametric array.
+
+            Children are managed replicas regenerated from the parent's pset —
+            their parametric attributes (door dimensions, wall lengths, …) are
+            overwritten on the next ``regenerate_array``. Parametric gizmo
+            groups skip children via this predicate in ``poll``.
+
+            This sits on a different axis from ``tool.Parametric.is_array``:
+            cardinality (parent vs child) is orthogonal to feature kind, and
+            an arrayed wall fires both ``is_wall`` and ``is_array`` on the
+            same element."""
+            if element is None:
+                return False
+            pset = ifcopenshell.util.element.get_pset(element, "BBIM_Array")
+            if not pset:
+                return False
+            parent_guid = pset.get("Parent")
+            return parent_guid is not None and parent_guid != element.GlobalId
 
         @classmethod
-        def is_roof(cls, element: entity_instance) -> bool:
-            return tool.Pset.get_element_pset(element, "BBIM_Roof")
+        def any_selected_is_array_child(cls) -> bool:
+            """True if any selected IFC-linked object is a Bonsai array child.
+
+            Multi-object wall topology gizmos (merge / join / extend / unjoin
+            / fillet) and their bound operators gate on this: any mutation
+            applied to a child is overwritten on the next
+            ``regenerate_array``, and merge specifically would leave the
+            parent's ``BBIM_Array.Data`` list pointing at a deleted GUID.
+
+            Memoised against (selection signature, IFC geometry generation)
+            so gizmo polls that fire per input event don't re-walk the pset
+            for every selected object every frame. Identity-keyed so plain
+            Python objects (used by tests) work alongside real Blender
+            ``bpy_struct`` wrappers."""
+            selected = tool.Blender.get_selected_objects()
+            selection_sig = frozenset(id(obj) for obj in selected)
+            current_gen = tool.Parametric.get_geom_generation()
+            cached = cls._any_selected_array_child_memo
+            if cached is not None and cached[0] == selection_sig and cached[1] == current_gen:
+                return cached[2]
+            result = False
+            for obj in selected:
+                element = tool.Ifc.get_entity(obj)
+                if element is not None and cls.is_array_child(element):
+                    result = True
+                    break
+            cls._any_selected_array_child_memo = (selection_sig, current_gen, result)
+            return result
+
+        _any_selected_array_child_memo: tuple[frozenset[int], int, bool] | None = None
 
         @classmethod
-        def is_window(cls, element: entity_instance) -> bool:
-            return tool.Pset.get_element_pset(element, "BBIM_Window")
+        def is_slab(cls, element: entity_instance) -> bool:
+            """A slab is host-eligible for the parametric add-opening gizmo if
+            it is an IfcSlab with LAYER3 usage.
+
+            Slabs carry no proprietary BBIM_Slab pset — their parametric state
+            lives in standard IFC (extrusion depth, IfcMaterialLayerSetUsage
+            with LayerSetDirection AXIS3). Any LAYER3 slab qualifies."""
+            if element is None or not element.is_a("IfcSlab"):
+                return False
+            return tool.Model.get_usage_type(element) == "LAYER3"
 
         @classmethod
-        def is_door(cls, element: entity_instance) -> bool:
-            return tool.Pset.get_element_pset(element, "BBIM_Door")
+        def is_pipe_segment(cls, element: entity_instance) -> bool:
+            return element is not None and element.is_a("IfcPipeSegment")
 
         @classmethod
-        def is_stair(cls, element: entity_instance) -> bool:
-            return tool.Pset.get_element_pset(element, "BBIM_Stair")
+        def is_duct_segment(cls, element: entity_instance) -> bool:
+            return element is not None and element.is_a("IfcDuctSegment")
 
         @classmethod
-        def is_editing_railing_path(cls, obj: bpy.types.Object):
+        def is_editing_railing_path(cls, obj: bpy.types.Object) -> bool:
             props = tool.Model.get_railing_props(obj)
             return props.is_editing_path
 
@@ -1232,106 +1700,9 @@ class Blender(bonsai.core.tool.Blender):
             return props.is_editing_path
 
         @classmethod
-        def is_editing_railing_parameters(cls, obj: bpy.types.Object) -> bool:
-            props = tool.Model.get_railing_props(obj)
-            return props.is_editing
-
-        @classmethod
-        def is_editing_roof_parameters(cls, obj: bpy.types.Object) -> bool:
-            props = tool.Model.get_roof_props(obj)
-            return props.is_editing
-
-        @classmethod
-        def is_editing_window_parameters(cls, obj: bpy.types.Object) -> bool:
-            props = tool.Model.get_window_props(obj)
-            return props.is_editing
-
-        @classmethod
-        def is_editing_door_parameters(cls, obj: bpy.types.Object) -> bool:
-            props = tool.Model.get_door_props(obj)
-            return props.is_editing
-
-        @classmethod
-        def is_editing_stair_parameters(cls, obj: bpy.types.Object) -> bool:
-            props = tool.Model.get_stair_props(obj)
-            return props.is_editing
-
-        @classmethod
         def is_modifier_with_non_editable_path(cls, element: entity_instance) -> bool:
-            return cls.is_stair(element) or cls.is_door(element) or cls.is_window(element)
-
-        class Array:
-            @classmethod
-            def bake_children_transform(cls, parent_element: entity_instance, item: int) -> None:
-                modifier_data = list(cls.get_modifiers_data(parent_element))[item]
-                children = cls.get_children_objects(modifier_data)
-                for child in children:
-                    constraint = next((c for c in child.constraints if c.type == "CHILD_OF"), None)
-                    if constraint:
-                        with bpy.context.temp_override(object=child):
-                            bpy.ops.constraint.apply(constraint=constraint.name, owner="OBJECT")
-
-            @classmethod
-            def constrain_children_to_parent(cls, parent_element: ifcopenshell.entity_instance) -> None:
-                if not (parent_obj := tool.Ifc.get_object(parent_element)):
-                    return  # Filtered out, arrayed void, etc
-                assert isinstance(parent_obj, bpy.types.Object)
-                children = cls.get_all_children_objects(parent_element)
-                for child in children:
-                    constraint = next((c for c in child.constraints if c.type == "CHILD_OF"), None)
-                    if constraint:
-                        child.constraints.remove(constraint)
-                    constraint = child.constraints.new("CHILD_OF")
-                    constraint.name = "BBIM_Array_CHILD_OF"
-                    assert isinstance(constraint, bpy.types.ChildOfConstraint)
-                    constraint.target = parent_obj
-
-            @classmethod
-            def set_children_lock_state(
-                cls, parent_element: ifcopenshell.entity_instance, item: int, lock_state: bool = True
-            ) -> None:
-                modifier_data = list(cls.get_modifiers_data(parent_element))[item]
-                children = cls.get_children_objects(modifier_data)
-                for child_obj in children:
-                    Blender.lock_transform(child_obj, lock_state)
-
-            @classmethod
-            def remove_constraints(cls, parent_element: ifcopenshell.entity_instance) -> None:
-                children = cls.get_all_children_objects(parent_element)
-                for child in children:
-                    constraint = next((c for c in child.constraints if c.type == "CHILD_OF"), None)
-                    if constraint:
-                        child.constraints.remove(constraint)
-
-            @classmethod
-            def get_all_objects(cls, parent_element: ifcopenshell.entity_instance) -> list[bpy.types.Object]:
-                parent_obj = tool.Ifc.get_object(parent_element)
-                assert isinstance(parent_obj, bpy.types.Object)
-                children_objects = list(cls.get_all_children_objects(parent_element))
-                array_objects = [parent_obj] + children_objects  # We ensure the parent is at index 0
-                return array_objects
-
-            @classmethod
-            def get_all_children_objects(
-                cls, parent_element: ifcopenshell.entity_instance
-            ) -> Generator[bpy.types.Object, None, None]:
-                for array_modifier in cls.get_modifiers_data(parent_element):
-                    yield from cls.get_children_objects(array_modifier)
-
-            @classmethod
-            def get_modifiers_data(
-                cls, parent_element: ifcopenshell.entity_instance
-            ) -> Generator[dict[str, Any], None, None]:
-                array_pset = ifcopenshell.util.element.get_pset(parent_element, "BBIM_Array")
-                yield from json.loads(array_pset["Data"])
-
-            @classmethod
-            def get_children_objects(cls, modifier_data: dict[str, Any]) -> Generator[bpy.types.Object, None, None]:
-                child_guid: str
-                for child_guid in modifier_data["children"]:
-                    child_obj = tool.Blender.get_object_from_guid(child_guid)
-                    if child_obj:
-                        yield child_obj
+            feature = tool.Parametric.find_for_element(element)
+            return bool(feature and feature.has_non_editable_path)
 
     class Attribute:
         @classmethod
@@ -1836,6 +2207,18 @@ class Blender(bonsai.core.tool.Blender):
         return types.MappingProxyType(dct)
 
     @classmethod
+    @lru_cache
+    def get_property_header_tools(cls) -> frozenset[str]:
+        """``BimTool`` plus its parametric subclasses — the workspace
+        tools whose 3D-view / N-panel header surfaces BIM Tool property
+        floats (extrusion_depth, length, x_angle). ``AnnotationTool``
+        and the non-``BimTool`` workspace tools (spatial / structural /
+        cad / covering) are excluded by construction."""
+        from bonsai.bim.module.model.workspace import BimTool
+
+        return frozenset(cls.bl_idname for cls in (BimTool.__subclasses__() + [BimTool]))
+
+    @classmethod
     def get_object_constraint_props(cls, obj: bpy.types.Object) -> BIMObjectConstraintProperties:
         return obj.BIMObjectConstraintProperties  # pyright: ignore[reportAttributeAccessIssue]
 
@@ -2055,6 +2438,149 @@ class Blender(bonsai.core.tool.Blender):
             return False
         return True
 
+    @staticmethod
+    def transparent_color(color: Iterable[float], alpha: float = 0.1) -> list[float]:
+        """Copy an RGBA color with its alpha channel overridden."""
+        out = [c for c in color]
+        out[3] = alpha
+        return out
+
+    @classmethod
+    def draw_bmesh_face_tris(
+        cls,
+        bm: bmesh.types.BMesh,
+        world_vert_coords: list,
+        color: Any,
+        draw_batch: Callable[[str, list, Any, list], None],
+    ) -> None:
+        """Submit a non-mutating beauty-triangulated TRIS batch for ``bm``'s faces.
+
+        ``world_vert_coords`` must be indexed by ``bm.verts`` index. Never call
+        ``bmesh.ops.triangulate`` on a live bmesh to compute draw indices — it
+        mutates the input and produces ear-clip fans that render as visible
+        streaks at low alpha.
+        """
+        tris = [[loop.vert.index for loop in tri] for tri in bm.calc_loop_triangles()]
+        draw_batch("TRIS", world_vert_coords, color, tris)
+
+    @classmethod
+    def draw_quads(
+        cls,
+        context: bpy.types.Context,
+        quads: Sequence[
+            tuple[
+                tuple[float, float, float],
+                tuple[float, float, float],
+                tuple[float, float, float],
+                tuple[float, float, float],
+            ]
+        ],
+        *,
+        fill_color: Optional[tuple[float, float, float, float]] = None,
+        outline_color: Optional[tuple[float, float, float, float]] = None,
+        outline_width: float = 1.0,
+    ) -> None:
+        """Render ``quads`` (each a 4-tuple of CCW world-space corners) as
+        a filled TRIS batch, an outline LINES batch, or both.
+
+        Both colors are RGBA 4-tuples. Pass ``fill_color=None`` to skip
+        the fill pass and ``outline_color=None`` to skip the outline.
+        Skipping both is a no-op.
+
+        Replaces the per-decorator quad-fill helpers that used to live
+        inline in each feature module.
+        """
+        if not quads or (fill_color is None and outline_color is None):
+            return
+        region = getattr(context, "region", None)
+        if region is None:
+            return
+
+        verts: list[tuple[float, float, float]] = []
+        tri_indices: list[tuple[int, int, int]] = []
+        line_indices: list[tuple[int, int]] = []
+        for quad in quads:
+            if len(quad) != 4:
+                continue
+            base = len(verts)
+            verts.extend(tuple(v) for v in quad)
+            if fill_color is not None:
+                tri_indices.append((base, base + 1, base + 2))
+                tri_indices.append((base, base + 2, base + 3))
+            if outline_color is not None:
+                line_indices.append((base, base + 1))
+                line_indices.append((base + 1, base + 2))
+                line_indices.append((base + 2, base + 3))
+                line_indices.append((base + 3, base))
+
+        if not cls.validate_shader_batch_data(verts, None):
+            return
+
+        gpu.state.blend_set("ALPHA")
+        try:
+            if fill_color is not None and tri_indices:
+                shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+                shader.bind()
+                shader.uniform_float("color", fill_color)
+                batch = batch_for_shader(shader, "TRIS", {"pos": verts}, indices=tri_indices)
+                batch.draw(shader)
+            if outline_color is not None and line_indices:
+                shader = gpu.shader.from_builtin("UNIFORM_COLOR")
+                shader.bind()
+                shader.uniform_float("color", outline_color)
+                # Outline width: the UNIFORM_COLOR shader respects the
+                # GPU's current line-width state; restore on exit.
+                prev_width = gpu.state.line_width_get()
+                gpu.state.line_width_set(outline_width)
+                try:
+                    batch = batch_for_shader(shader, "LINES", {"pos": verts}, indices=line_indices)
+                    batch.draw(shader)
+                finally:
+                    gpu.state.line_width_set(prev_width)
+        finally:
+            gpu.state.blend_set("NONE")
+
+    @classmethod
+    def build_dashed_line_segments(
+        cls,
+        world_verts: Sequence[Sequence[float]],
+        edges_indices: Sequence[Sequence[int]],
+        dash_period: float,
+        dash_width: float,
+    ) -> tuple[list[tuple[float, float, float]], list[tuple[int, int]]]:
+        """Pre-segment edges into world-space dash chunks for a vanilla LINES batch.
+
+        Each input edge is sliced into segments of length ``dash_width`` spaced
+        ``dash_period`` apart (dash phase resets per-edge). The result is a fresh
+        ``(verts, edges)`` pair that draws as dashes through any standard line
+        shader — letting both passes of a visible/occluded outline reuse the
+        same shader so depth values match exactly across passes.
+        """
+        new_verts: list[tuple[float, float, float]] = []
+        new_edges: list[tuple[int, int]] = []
+        if dash_period <= 0 or dash_width <= 0:
+            return new_verts, new_edges
+        n = len(world_verts)
+        for i, j in edges_indices:
+            if not (0 <= i < n and 0 <= j < n) or i == j:
+                continue
+            v0 = world_verts[i]
+            v1 = world_verts[j]
+            dx, dy, dz = v1[0] - v0[0], v1[1] - v0[1], v1[2] - v0[2]
+            edge_length = math.sqrt(dx * dx + dy * dy + dz * dz)
+            if edge_length == 0.0:
+                continue
+            ux, uy, uz = dx / edge_length, dy / edge_length, dz / edge_length
+            t = 0.0
+            while t < edge_length:
+                t_end = min(t + dash_width, edge_length)
+                idx = len(new_verts)
+                new_verts.append((v0[0] + ux * t, v0[1] + uy * t, v0[2] + uz * t))
+                new_verts.append((v0[0] + ux * t_end, v0[1] + uy * t_end, v0[2] + uz * t_end))
+                new_edges.append((idx, idx + 1))
+                t += dash_period
+        return new_verts, new_edges
+
     @classmethod
     def extract_error_reports(cls, exception: RuntimeError) -> list[str]:
         """Extracts error report lines from a runtime exception during operator execution.
@@ -2205,7 +2731,7 @@ class Blender(bonsai.core.tool.Blender):
 
         See https://projects.blender.org/blender/blender/issues/149283
         """
-        if len(bytedata) == (n * 2):
+        if len(bytedata) == (n * 8):  # float64 has 8 bytes per element
             return np.frombuffer(bytedata, dtype=np.float64).astype(np.float32)
         return np.frombuffer(bytedata, dtype=np.float32)
 

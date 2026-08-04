@@ -4,10 +4,14 @@
 
 #include <rocksdb/options.h>
 
+#include <cstdint>
+#include <cstring>
+
 #include "../ifcparse/IfcLogger.h"
 
-RocksDbSerializer::RocksDbSerializer(IfcParse::IfcFile* file, const std::string& rocksdb_filename)
-	: file_(file)
+RocksDbSerializer::RocksDbSerializer(IfcParse::IfcFile* file, const std::string& rocksdb_filename, Logger& logger)
+	: Serializer(logger)
+	, file_(file)
 	, rocksdb_filename_(rocksdb_filename)
 {
 	/*rocksdb::Options options;
@@ -15,7 +19,7 @@ RocksDbSerializer::RocksDbSerializer(IfcParse::IfcFile* file, const std::string&
 	options.merge_operator.reset(new ConcatenateIdMergeOperator());
 	rocksdb::Status status = rocksdb::DB::Open(options, rocksdb_filename, &db_);*/
 
-	output_file_ = new IfcParse::IfcFile(file->schema(), IfcParse::FT_ROCKSDB, rocksdb_filename_);
+	output_file_ = new IfcParse::IfcFile(file->schema(), IfcParse::FT_ROCKSDB, rocksdb_filename_, logger);
 
 	// We promise never to add the same instance twice
 	output_file_->check_existance_before_adding = false;
@@ -23,8 +27,9 @@ RocksDbSerializer::RocksDbSerializer(IfcParse::IfcFile* file, const std::string&
 	output_file_->calculate_unit_factors = false;
 }
 
-RocksDbSerializer::RocksDbSerializer(const std::string& input_filename, const std::string& rocksdb_filename, bool stream)
-	: file_(input_filename)
+RocksDbSerializer::RocksDbSerializer(const std::string& input_filename, const std::string& rocksdb_filename, bool stream, Logger& logger)
+	: Serializer(logger)
+	, file_(input_filename)
 	, rocksdb_filename_(rocksdb_filename)
 {
 }

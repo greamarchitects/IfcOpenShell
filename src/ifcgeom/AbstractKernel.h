@@ -64,13 +64,15 @@ namespace ifcopenshell {
 	protected:
 		std::string geometry_library_;
 		Settings settings_;
+		Logger& logger_;
 	public:
 		bool propagate_exceptions = false;
 		bool partial_success_is_success = true;
 			
-		AbstractKernel(const std::string& geometry_library, const Settings& settings)
+		AbstractKernel(const std::string& geometry_library, const Settings& settings, Logger& logger = Logger::Root())
 			: geometry_library_(geometry_library)
-			, settings_(settings) {}
+			, settings_(settings)
+			, logger_(logger) {}
 
 		virtual ~AbstractKernel() = default;
 
@@ -79,6 +81,7 @@ namespace ifcopenshell {
 		const std::string& geometry_library() const {
 			return geometry_library_;
 		}
+		Logger& logger() const { return logger_; }
 
 		virtual bool supports_boolean_operations() const = 0;
 
@@ -126,7 +129,7 @@ namespace ifcopenshell {
 			const IfcGeom::ConversionResults& entity_shapes, const ifcopenshell::geometry::taxonomy::matrix4& entity_trsf, IfcGeom::ConversionResults& cut_shapes) = 0;
 		virtual bool unify_shapes(const IfcGeom::ConversionResults&, IfcGeom::ConversionResults&) { throw not_implemented_error(); }
 
-		virtual AbstractKernel* clone() const = 0;
+		virtual AbstractKernel* clone(Logger& logger) const = 0;
 	};
 }
 }
@@ -149,8 +152,12 @@ namespace {
 
 	template <>
 	struct dispatch_conversion<ifcopenshell::geometry::taxonomy::type_by_kind::max> {
-		static bool dispatch(ifcopenshell::geometry::kernels::AbstractKernel*, ifcopenshell::geometry::taxonomy::kinds, const ifcopenshell::geometry::taxonomy::ptr& item, IfcGeom::ConversionResults&) {
-			Logger::Error("No conversion for " + std::to_string(item->kind()));
+        static bool dispatch(ifcopenshell::geometry::kernels::AbstractKernel* kernel, ifcopenshell::geometry::taxonomy::kinds, const ifcopenshell::geometry::taxonomy::ptr& item, IfcGeom::ConversionResults&) {
+            std::string created_from;
+            if (item->instance) {
+                created_from = " (created from " + item->instance->declaration().name() + ")";
+			}
+            kernel->logger().Error("UNS", 1, "No support for " + ifcopenshell::geometry::taxonomy::kind_to_string(item->kind()) + created_from + " in kernel " + kernel->geometry_library());
 			return false;
 		}
 	};
@@ -169,8 +176,12 @@ namespace {
 
 	template <>
 	struct dispatch_with_upgrade<ifcopenshell::geometry::taxonomy::upgrades::max> {
-		static bool dispatch(ifcopenshell::geometry::kernels::AbstractKernel*, const ifcopenshell::geometry::taxonomy::ptr& item, IfcGeom::ConversionResults&) {
-			Logger::Error("No conversion with upgrade for " + std::to_string(item->kind()));
+		static bool dispatch(ifcopenshell::geometry::kernels::AbstractKernel* kernel, const ifcopenshell::geometry::taxonomy::ptr& item, IfcGeom::ConversionResults&) {
+            std::string created_from;
+            if (item->instance) {
+                created_from = " (created from " + item->instance->declaration().name() + ")";
+            }
+            kernel->logger().Error("UNS", 2, "No support (after considering item upgrade) for " + ifcopenshell::geometry::taxonomy::kind_to_string(item->kind()) + created_from + " in kernel " + kernel->geometry_library());
 			return false;
 		}
 	};
@@ -206,7 +217,7 @@ namespace {
 	template <typename T>
 	struct dispatch_curve_creation<T, ifcopenshell::geometry::taxonomy::curves::max> {
 		static bool dispatch(const ifcopenshell::geometry::taxonomy::ptr& item, T&) {
-			Logger::Error("No conversion for " + std::to_string(item->kind()));
+			Logger::Root().Error("GEO", 28, "No conversion for " + std::to_string(item->kind()));
 			return false;
 		}
 	};
@@ -228,7 +239,7 @@ namespace {
 	template <typename T>
 	struct dispatch_surface_creation<T, ifcopenshell::geometry::taxonomy::surfaces::max> {
 		static bool dispatch(const ifcopenshell::geometry::taxonomy::ptr& item, T&) {
-			Logger::Error("No conversion for " + std::to_string(item->kind()));
+			Logger::Root().Error("GEO", 29, "No conversion for " + std::to_string(item->kind()));
 			return false;
 		}
 	};

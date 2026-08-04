@@ -102,12 +102,18 @@ class BIM_PT_styles(Panel):
 
         # style ui tools
         if active_style:
+            style = active_style
             row = self.layout.row(align=True)
             if material := style.blender_material:
                 msprops = tool.Style.get_material_style_props(material)
                 row.prop(msprops, "active_style_type", icon="SHADING_RENDERED", text="")
                 op = row.operator("bim.update_current_style", icon="FILE_REFRESH", text="")
                 op.style_id = style.ifc_definition_id
+
+            if active_style and self.props.style_type == "IfcSurfaceStyle":
+                if material := style.blender_material:
+                    msprops = tool.Style.get_material_style_props(material)
+                    self.draw_style_status_row(material, msprops)
 
             if self.props.style_type == "IfcSurfaceStyle":
                 self.layout.label(text="Surface Style Element:")
@@ -160,6 +166,66 @@ class BIM_PT_styles(Panel):
                 edit_label = "Save Lighting Style"
             self.draw_edit_ui(edit_label)
 
+    def draw_style_status_row(self, material: bpy.types.Material, msprops) -> None:
+        space = tool.Blender.get_view3d_space()
+        box = self.layout.box()
+
+        obj = bpy.context.active_object
+
+        parts = []
+        if space:
+            shading_type = space.shading.type
+            shading_labels = {
+                "SOLID": "Solid",
+                "MATERIAL": "Material Preview",
+                "RENDERED": "Rendered",
+                "WIREFRAME": "Wireframe",
+            }
+            parts.append(f"Viewport: {shading_labels.get(shading_type, shading_type)}")
+        else:
+            parts.append("No 3D viewport")
+            shading_type = None
+
+        if obj:
+            obj_has_uv = isinstance(obj.data, bpy.types.Mesh) and bool(obj.data.uv_layers)
+            uv_label = "UV \u2713" if obj_has_uv else "UV \u2717"
+            parts.append(f"Selected Object: {obj.name} {uv_label}")
+        else:
+            parts.append("Selected Object: None")
+
+        if shading_type == "SOLID":
+            is_flat = space.shading.color_type != "TEXTURE"
+            mode_label = "Flat"
+            dep_label = "Shade"
+            if not is_flat:
+                mode_label = "Pretty"
+                dep_label = "Texture \u2192 Shade"
+        elif shading_type in ("MATERIAL", "RENDERED"):
+            is_flat = msprops.prefer_ifc_shading
+            mode_label = "Flat"
+            dep_label = "Render+Texture \u2192 Render \u2192 Shade"
+            if not is_flat:
+                mode_label = "Pretty"
+                dep_label = "External \u2192 Render+Texture \u2192 Render \u2192 Shade"
+        else:
+            is_flat = False
+            mode_label = ""
+            dep_label = ""
+
+        row1 = box.row(align=True)
+        row1.label(text=" | ".join(parts))
+
+        if mode_label:
+            row2 = box.row(align=True)
+            row2.label(text=f"Current Mode: {mode_label} \u2014 {dep_label}")
+
+        row3 = box.row(align=True)
+        row3.alignment = "RIGHT"
+        op = row3.operator("bim.suggest_shade_from_external_style", text="", icon="BRUSHES_ALL")
+        op.material_name = material.name
+        op = row3.operator("bim.toggle_prefer_ifc_shading", text="", icon="UV_SYNC_SELECT")
+        op.material_name = material.name
+
     def draw_surface_style_shading(self):
         row = self.layout.row()
         row.prop(self.props, "surface_colour")
@@ -176,8 +242,30 @@ class BIM_PT_styles(Panel):
         row.prop(self.props, "reflectance_method")
 
         if self.props.reflectance_method not in ("PHYSICAL", "NOTDEFINED", "FLAT"):
-            self.layout.label(text="Supported reflectance methods are:")
-            self.layout.label(text="PHYSICAL / NOTDEFINED / FLAT")
+            self.layout.label(
+                text=f"{self.props.reflectance_method} will be skipped: only PHYSICAL / NOTDEFINED / FLAT are supported",
+                icon="ERROR",
+            )
+        elif self.props.reflectance_method in ("PHYSICAL", "NOTDEFINED"):
+            if self.props.specular_colour_class == "IfcColourRgb":
+                self.layout.label(
+                    text="Metallic color is IFC-only in PHYSICAL/NOTDEFINED and does not affect Blender appearance",
+                    icon="ERROR",
+                )
+        elif self.props.reflectance_method == "FLAT":
+            if self.props.diffuse_colour_class == "IfcNormalisedRatioMeasure":
+                self.layout.label(
+                    text="Emissive ratio is IFC-only in FLAT Reflectance method and does not affect Blender appearance",
+                    icon="ERROR",
+                )
+            self.layout.label(
+                text="Specular value is IFC-only in FLAT Reflectance method and does not affect Blender appearance",
+                icon="ERROR",
+            )
+            self.layout.label(
+                text="Highlight value is IFC-only in FLAT Reflectance method and does not affect Blender appearance",
+                icon="ERROR",
+            )
 
         row = self.layout.row(align=True)
         row.label(text="Emissive" if self.props.reflectance_method == "FLAT" else "Diffuse")
@@ -232,6 +320,8 @@ class BIM_PT_styles(Panel):
         row.operator("bim.add_surface_texture", text="", icon="ADD")
         if textures:
             self.layout.prop(self.props, "uv_mode")
+            if self.props.uv_mode in ("Generated", "Camera"):
+                self.layout.label(text="Not available in SOLID Mode", icon="INFO")
 
         for i, texture in enumerate(textures):
             split = self.layout.split(factor=0.30, align=True)
@@ -244,6 +334,22 @@ class BIM_PT_styles(Panel):
             op_clear = row.operator("bim.remove_texture_map", text="", icon="X")
             op_path.texture_map_index = op_clear.texture_map_index = i
 
+            reflectance = self.props.reflectance_method
+            mode = texture.mode
+            if reflectance == "FLAT":
+                if mode != "EMISSIVE":
+                    self.layout.label(
+                        text=f"{mode} will be skipped: only EMISSIVE is supported for Render Reflectance FLAT",
+                        icon="ERROR",
+                    )
+            elif reflectance in ("PHYSICAL", "NOTDEFINED"):
+                _SUPPORTED = {"DIFFUSE", "NORMAL", "METALLICROUGHNESS", "EMISSIVE", "OCCLUSION"}
+                if mode not in _SUPPORTED:
+                    self.layout.label(
+                        text=f"{mode} will be skipped: not supported for Render Reflectance PHYSICAL/NOTDEFINED",
+                        icon="ERROR",
+                    )
+
     def draw_externally_defined_surface_style(self):
         row = self.layout.row()
         op = row.operator("bim.browse_external_style", icon="APPEND_BLEND", text="Append From Blend File")
@@ -252,10 +358,17 @@ class BIM_PT_styles(Panel):
         bonsai.bim.helper.draw_attributes(self.props.external_style_attributes, self.layout, enable_search=True)
 
     def draw_refraction_surface_style(self):
+        self.layout.label(
+            text="Refraction values are IFC-only and do not affect Blender surface appearance",
+            icon="ERROR",
+        )
         bonsai.bim.helper.draw_attributes(self.props.refraction_style_attributes, self.layout, enable_search=True)
-        row = self.layout.row(align=True)
 
     def draw_lighting_surface_style(self):
+        self.layout.label(
+            text="Lighting values are IFC-only and do not affect Blender surface appearance",
+            icon="ERROR",
+        )
         bonsai.bim.helper.draw_attributes(self.props.lighting_style_colours, self.layout)
 
     def draw_edit_ui(self, edit_label: str):

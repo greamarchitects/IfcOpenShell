@@ -133,23 +133,21 @@ struct spiral_parent_curve : public parent_curve_function {
 
 // this is the piecewise curve segment function for horizontal and vertical
 struct curve_segment_function {
-    curve_segment_function(const Eigen::Matrix4d& curve_segment_placement, const Eigen::Matrix4d& remove_parent_curve_rotation, const Eigen::Matrix4d& remove_parent_curve_translation, std::shared_ptr<parent_curve_function> parent_curve_fn) : 
+    curve_segment_function(const Eigen::Matrix4d& curve_segment_placement, const Eigen::Matrix4d& parent_curve_normalization, std::shared_ptr<parent_curve_function> parent_curve_fn) : 
        curve_segment_placement_(curve_segment_placement),
-       remove_parent_curve_rotation_(remove_parent_curve_rotation),
-       remove_parent_curve_translation_(remove_parent_curve_translation),
+       parent_curve_normalization_(parent_curve_normalization),
        parent_curve_fn_(parent_curve_fn) {
     }
 
     Eigen::Matrix4d operator()(double u) const {
         Eigen::Matrix4d parent_curve_point = (*parent_curve_fn_)(u);
-        Eigen::Matrix4d curve_segment_point = curve_segment_placement_ * remove_parent_curve_rotation_ * remove_parent_curve_translation_ * parent_curve_point;
+        Eigen::Matrix4d curve_segment_point = curve_segment_placement_ * parent_curve_normalization_ * parent_curve_point;
         return curve_segment_point + parent_curve_fn_->curvature(u);
     }
 
   private:
     Eigen::Matrix4d curve_segment_placement_;
-    Eigen::Matrix4d remove_parent_curve_rotation_;
-    Eigen::Matrix4d remove_parent_curve_translation_;
+    Eigen::Matrix4d parent_curve_normalization_;
     std::shared_ptr<parent_curve_function> parent_curve_fn_;
 };
 
@@ -166,9 +164,46 @@ struct cant_curve_segment_function {
         // Subtract the parent_curve_start_point to get the incremental cant rotation and superelevation
         // Add the incremental cant rotation and superelevation to curve_segment_placement to get the curve_segment_point
         Eigen::Matrix4d parent_curve_point = (*parent_curve_fn_)(u);
-        Eigen::Matrix4d cant_increment = parent_curve_point - parent_curve_start_point_;
-        Eigen::Matrix4d curve_segment_point = curve_segment_placement_ + cant_increment;
+
+        Eigen::Matrix3d parent_curve_start_rotation_ = parent_curve_start_point_.block<3, 3>(0, 0);
+        Eigen::Matrix3d parent_curve_point_rotation = parent_curve_point.block<3, 3>(0, 0);
+        Eigen::Matrix3d incremental_rotation = parent_curve_point_rotation * parent_curve_start_rotation_.transpose();
+        Eigen::Matrix3d placement_rotation_ = curve_segment_placement_.block<3, 3>(0, 0);
+        Eigen::Matrix3d curve_segment_rotation = incremental_rotation * placement_rotation_;
+
+        Eigen::Vector3d parent_curve_start_translation_ = parent_curve_start_point_.block<3, 1>(0, 3);
+        Eigen::Vector3d parent_curve_point_translation = parent_curve_point.block<3, 1>(0, 3);
+        Eigen::Vector3d incremental_translation = parent_curve_point_translation - parent_curve_start_translation_;
+        Eigen::Vector3d placement_translation_ = curve_segment_placement_.block<3, 1>(0, 3);
+        Eigen::Vector3d curve_segment_translation = incremental_translation + placement_translation_;
+
+        Eigen::Matrix4d curve_segment_point = Eigen::Matrix4d::Identity();
+        curve_segment_point.block<3, 3>(0, 0) = curve_segment_rotation;
+        curve_segment_point.block<3, 1>(0, 3) = curve_segment_translation;
+
+        //if (0.0 < u) {
+        //    Eigen::IOFormat latexFormat(
+        //        Eigen::FullPrecision, // full precision
+        //        0,                      // no alignment flags
+        //        " & ",                  // coeff separator
+        //        " \\\\ \n",             // row separator
+        //        "",                     // row prefix
+        //        "",                     // row suffix
+        //        "",                     // matrix prefix
+        //        ""                      // matrix suffix
+        //    );
+        //    std::cout << "Placement (M_CSP)" << std::endl;
+        //    std::cout << curve_segment_placement_.format(latexFormat) << std::endl;
+        //    std::cout << "Parent curve start point (M_PCS)" << std::endl;
+        //    std::cout << parent_curve_start_point_.format(latexFormat) << std::endl;
+        //    std::cout << "Parent curve point (M_PCl)" << std::endl;
+        //    std::cout << parent_curve_point.format(latexFormat) << std::endl;
+        //    std::cout << "Curve segment point (M_c)" << std::endl;
+        //    std::cout << curve_segment_point.format(latexFormat) << std::endl;
+        //}
+
         return curve_segment_point + parent_curve_fn_->curvature(u);
+
     }
 
   private:
@@ -181,6 +216,7 @@ struct cant_curve_segment_function {
 class curve_segment_evaluator {
   private:
     mapping* mapping_ = nullptr;
+    Logger& logger_;
     const IfcSchema::IfcCurveSegment* inst_ = nullptr;      // this curve segment instance
     double length_unit_;
     double start_;
@@ -199,6 +235,7 @@ class curve_segment_evaluator {
   public:
     curve_segment_evaluator(mapping* mapping, const IfcSchema::IfcCurveSegment* inst, double length_unit)
         : mapping_(mapping),
+          logger_(mapping->logger()),
           inst_(inst),
           length_unit_(length_unit),
           parent_curve_(inst->ParentCurve()) {
@@ -225,7 +262,7 @@ class curve_segment_evaluator {
                     }
                 }
             } else {
-                Logger::Warning("IfcCurveSegment belongs to multiple IfcCompositeCurve instances. Cannot determine the next segment.");
+                mapping_->logger().Warning("GEO", 242, "IfcCurveSegment belongs to multiple IfcCompositeCurve instances. Cannot determine the next segment.");
             }
         }
 
@@ -248,7 +285,7 @@ class curve_segment_evaluator {
         if ((is_horizontal + is_vertical + is_cant) != 1) {
             // We have to choose the correct functor based on usage. We can't
             // support multiple, because we don't know the caller at this point.
-            Logger::Error(std::runtime_error("multiple uses of IfcSegmentCurve not supported"), inst_);
+            mapping_->logger().Error("UNS", 10, std::runtime_error("multiple uses of IfcSegmentCurve not supported"), inst_);
         }
 
         segment_type_ = is_horizontal ? ST_HORIZONTAL : is_vertical ? ST_VERTICAL : is_cant  ? ST_CANT : ST_HORIZONTAL;
@@ -286,7 +323,7 @@ class curve_segment_evaluator {
                     end_point = segmented_reference_curve->EndPoint();
                 }
             } else {
-                Logger::Warning("IfcCurveSegment belongs to multiple IfcCompositeCurve instances. Cannot determine the end point.");
+                mapping_->logger().Warning("GEO", 243, "IfcCurveSegment belongs to multiple IfcCompositeCurve instances. Cannot determine the end point.");
             }
             if (end_point) {
                 next_segment_placement_ = taxonomy::cast<taxonomy::matrix4>(mapping_->map(end_point))->ccomponents();
@@ -308,7 +345,7 @@ class curve_segment_evaluator {
 
     taxonomy::ptr get_segment_curve_function() {
         if (!parent_curve_fn_ || !parent_curve_start_point_) {
-            Logger::Error(std::runtime_error(inst_->ParentCurve()->declaration().name() + " not implemented"), inst_);
+            mapping_->logger().Error("UNS", 11, std::runtime_error(inst_->ParentCurve()->declaration().name() + " not implemented"), inst_);
         }
 
         auto length = fabs(this->length());
@@ -318,33 +355,26 @@ class curve_segment_evaluator {
             return taxonomy::make<taxonomy::functor_item>(length, fn);
         } else {
             // The parent curve function returns the 4x4 matrix for the parent curve.
-            // Subtract the parent curve start point (remove the translation and rotation)
-            // to get the incremental translation and rotation. Apply the incremental
+            // Normalize the parent curve so that the trim start point and tangent direction at the start point
+            // are aligned with the origin. This is accomplished with a normalization matrix that subtracts the 
+            // incremental parent curve start point and applies a rotation. Apply the incremental
             // translation and rotation to the curve_segment_placement to get the curve_segment_point
 
-            // Do a negative translation of the parent curve point relative to the start of the parent curve.
-            // This moves parent_curve_fn(u=0.0) to coordinate (0,0).
-            // This is done so the curve_segment_placement is applied relative to (0,0)
-            Eigen::Matrix4d remove_parent_curve_translation = Eigen::Matrix4d::Identity();
-            remove_parent_curve_translation.col(3) = -1.0 * (*parent_curve_start_point_).col(3);
-            remove_parent_curve_translation(3, 3) = 1.0;
+           auto rotation = (*parent_curve_start_point_).block<3, 3>(0, 0);
+           auto dxo = rotation(0, 0);
+           auto dyo = rotation(1, 0);
+           rotation(0, 1) *= -1.0;
+           rotation(1, 0) *= -1.0;
+           auto xo = (*parent_curve_start_point_)(0, 3);
+           auto yo = (*parent_curve_start_point_)(1, 3);
+           auto xn = -xo*dxo - yo*dyo;
+           auto yn =  xo*dyo - yo*dxo;
+           Eigen::Matrix4d parent_curve_normalization = Eigen::Matrix4d::Identity();
+           parent_curve_normalization.block<3, 3>(0, 0) = rotation;
+           parent_curve_normalization(0, 3) = xn;
+           parent_curve_normalization(1, 3) = yn;
 
-            // Do a rotation so that the tangent of the parent curve is in the direction (1,0)
-            // Example: if the parent curve IfcLine is at a 30 degree clockwise angle, this does
-            // a 30 degree counter-clockwise rotation
-            // Clockwise rotation matrix = [cos(angle) -sin(angle)]
-            //                             [sin(angle)  cos(angle)]
-            //
-            // Counter-clockwise rotation = [ cos(angle) sin(angle)]
-            //                              [-sin(angle) cos(angle)]
-            //
-            // That's just a sign flip in positions (0,1) and (1,0)
-            Eigen::Matrix4d remove_parent_curve_rotation = (*parent_curve_start_point_);
-            remove_parent_curve_rotation(0, 1) *= -1.0;
-            remove_parent_curve_rotation(1, 0) *= -1.0;
-            remove_parent_curve_rotation.col(3) = Eigen::Vector4d(0, 0, 0, 1); // remove the parent curve placement point
-
-            auto fn = curve_segment_function(*curve_segment_placement_, remove_parent_curve_rotation, remove_parent_curve_translation, parent_curve_fn_);
+            auto fn = curve_segment_function(*curve_segment_placement_, parent_curve_normalization, parent_curve_fn_);
             return taxonomy::make<taxonomy::functor_item>(length, fn);
         }
     }
@@ -448,13 +478,13 @@ class curve_segment_evaluator {
                 projected_length_ = length_;
             }
         } else if (segment_type_ == ST_CANT) {
-            Logger::Error(std::runtime_error("Unexpected segment type encountered - cant is handled in set_cant_spiral_function - should never get here"));
+            mapping_->logger().Error("GEO", 244, std::runtime_error("Unexpected segment type encountered - cant is handled in set_cant_spiral_function - should never get here"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); }
              );
         } else {
-            Logger::Error(std::runtime_error("Unexpected segment type encountered"));
+            mapping_->logger().Error("GEO", 245, std::runtime_error("Unexpected segment type encountered"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); }
@@ -495,11 +525,10 @@ class curve_segment_evaluator {
               // tilt angle in the plane of the cross section
               auto cant = Cant(u);
               auto tilt_angle = start_angle + delta_angle * (cant - start_cant) / delta_cant;
-              Eigen::Vector4d z(0.0, cos(tilt_angle), sin(tilt_angle), 0.0);
+              Eigen::Vector4d axis(0.0, cos(tilt_angle), sin(tilt_angle), 0.0);
 
-              // compute axis direction
-              Eigen::Vector4d y = z.cross3(ref_dir);
-              Eigen::Vector4d axis = ref_dir.cross3(y);
+              // compute cross slope direction
+              Eigen::Vector4d y = axis.cross3(ref_dir);
 
               Eigen::Matrix4d m = Eigen::Matrix4d::Identity();
               m.col(0) = ref_dir;
@@ -616,13 +645,13 @@ class curve_segment_evaluator {
 
             set_cant_spiral_function(*super, *slope, cant);
         } else if (segment_type_ == ST_VERTICAL) {
-            Logger::Error(std::runtime_error("IfcCosineSpiral cannot be used for vertical alignment"));
+            mapping_->logger().Error("GEO", 246, std::runtime_error("IfcCosineSpiral cannot be used for vertical alignment"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); }
             );
         } else {
-            Logger::Error(std::runtime_error("Unexpected segment type encountered"));
+            mapping_->logger().Error("GEO", 247, std::runtime_error("Unexpected segment type encountered"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); }
@@ -685,12 +714,12 @@ class curve_segment_evaluator {
 
             set_cant_spiral_function(*super, *slope, cant);
         } else if (segment_type_ == ST_VERTICAL) {
-            Logger::Error(std::runtime_error("IfcSineSpiral cannot be used for vertical alignment"));
+            mapping_->logger().Error("GEO", 248, std::runtime_error("IfcSineSpiral cannot be used for vertical alignment"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); });
         } else {
-            Logger::Error(std::runtime_error("Unexpected segment type encountered"));
+            mapping_->logger().Error("GEO", 249, std::runtime_error("Unexpected segment type encountered"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); });
@@ -831,6 +860,8 @@ class curve_segment_evaluator {
             auto R = c->Radius() * length_unit_;
             auto parent_curve_position = taxonomy::cast<taxonomy::matrix4>(mapping_->map(c->Position()))->ccomponents();
 
+            auto sign_l = sign(length_);
+
             // center point of the parent curve
             auto pcCenterX = parent_curve_position(0, 3);
             auto pcCenterY = parent_curve_position(1, 3);
@@ -844,7 +875,8 @@ class curve_segment_evaluator {
             // angle from X = 0 to the first point on the trimmed curve
             auto start_angle = pc_axis_angle + sweep_start_angle;
 
-            auto sign_l = sign(length_);
+            auto pcStartX = pcCenterX + R * cos(start_angle);
+            auto pcStartY = pcCenterY + R * sin(start_angle);
 
             projected_length_ = length_;
 
@@ -856,34 +888,27 @@ class curve_segment_evaluator {
 #ifdef SCHEMA_IfcCurveSegment_HAS_Placement
                 curve_segment_placement = taxonomy::cast<taxonomy::matrix4>(mapping_->map(inst_->Placement()))->ccomponents();
 #endif
-                auto csStartX = curve_segment_placement(0, 3);
-                auto csStartY = curve_segment_placement(1, 3);
-                auto csStartDx = curve_segment_placement(0, 0);
-                auto csStartDy = curve_segment_placement(1, 0);
-                auto csCenterX = csStartX - sign_l * csStartDy * R;
-                auto csCenterY = csStartY + sign_l * csStartDx * R;
-
                 // determine projected length along the x-axis
                 auto subtended_angle = R ? length_ / R : 0.0;
                 auto end_angle = start_angle + subtended_angle;
-                auto csEndX = csCenterX + R * cos(end_angle);
-                projected_length_ = csEndX - csStartX;
+                auto pcEndX = pcCenterX + R * cos(end_angle);
+                projected_length_ = pcEndX - pcStartX;
 
-                convert_u = [csStartX, csStartY, csCenterX, csCenterY, R, sign_l](double u) {
+                convert_u = [pcStartX, pcStartY, pcCenterX, pcCenterY, R, sign_l](double u) {
                     // for vertical, u is measured along the horizonal but we need it to be an arc length
 
                     // x and y are coordinates on the curve segment for horizontal distance u from the start point
                     // u is a horizontal distance so x = csStartX + u
                     // Recognizing the triangle
-                    // R^2 = (u + csStartX - csCenterX)^2 + (y - csCenterY)^2
+                    // R^2 = (u + pcStartX - pcCenterX)^2 + (y - pcCenterY)^2
                     // solve for y
-                    // (y - csCenterY) = sqrt( R^2 - (u + csStartX - csCenterX)^2 )
-                    // y = csCenterY + sqrt( R^2 - (u + csStartX - csCenterX)^2 )
-                    auto x = csStartX + u;
-                    auto y = csCenterY - sign_l * sqrt(pow(R, 2) - pow(u + csStartX - csCenterX, 2));
+                    // (y - pcCenterY) = sqrt( R^2 - (u + pcStartX - pcCenterX)^2 )
+                    // y = pcCenterY + sqrt( R^2 - (u + pcStartX - pcCenterX)^2 )
+                    auto x = pcStartX + u;
+                    auto y = pcCenterY - sign_l * sqrt(pow(R, 2) - pow(u + pcStartX - pcCenterX, 2));
 
                     // compute the chord distance between the start point and (x,y)
-                    auto c = sqrt(pow(x - csStartX, 2.0) + pow(y - csStartY, 2.0));
+                    auto c = sqrt(pow(x - pcStartX, 2.0) + pow(y - pcStartY, 2.0));
 
                     // compute the subtended angle
                     // c = 2R*sin(delta/2)
@@ -953,12 +978,12 @@ class curve_segment_evaluator {
             }
 
         } else if (segment_type_ == ST_CANT) {
-            Logger::Warning(std::runtime_error("Use of IfcCircle for cant is not supported"));
+            mapping_->logger().Warning("UNS", 12, std::runtime_error("Use of IfcCircle for cant is not supported"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); });
         } else {
-            Logger::Error(std::runtime_error("Unexpected segment type encountered"));
+            mapping_->logger().Error("GEO", 250, std::runtime_error("Unexpected segment type encountered"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); });
@@ -986,18 +1011,18 @@ class curve_segment_evaluator {
        double m_squared = std::inner_product(dr.begin(), dr.end(), dr.begin(), 0.0);
        double m = sqrt(m_squared);
        std::transform(dr.begin(), dr.end(), dr.begin(), [m](auto& d) { return d / m; });
-       auto pcDx = dr[0];
-       auto pcDy = dr[1];
+       auto pcDXx = dr[0];
+       auto pcDXy = dr[1];
 
        if (segment_type_ == ST_VERTICAL && curve_segment_placement_) {
           // the general algorithm for mapping parent curve onto curve segment doesn't
           // exactly work for IfcLine. This is easily overcome by using the curve segment
           // placement for the IfcLine direction
-          pcDx = (*curve_segment_placement_)(0, 0);
-          pcDy = (*curve_segment_placement_)(1, 0);
+          pcDXx = (*curve_segment_placement_)(0, 0);
+          pcDXy = (*curve_segment_placement_)(1, 0);
 
           // projected length along the x-axis is the 'i' component of the total length
-          projected_length_ = length_ * pcDx;
+          projected_length_ = length_ * pcDXx;
        }
 
        if (segment_type_ == ST_HORIZONTAL || segment_type_ == ST_VERTICAL || segment_type_ == ST_CANT) {
@@ -1006,19 +1031,32 @@ class curve_segment_evaluator {
               convert_u = [](double u) { return u; }; // u is along curve
           } else {
              // u is along horizontal, convert to along curve
-              convert_u = [pcDx](double u) { return u/pcDx; };
+              convert_u = [pcDXx](double u) { return u/pcDXx; };
           }
 
+          auto pcDZy = curve_segment_placement_ ? (*curve_segment_placement_)(1, 2) : 0.;
+          auto pcDZz = curve_segment_placement_ ? (*curve_segment_placement_)(2, 2) : 1.;
+          
           parent_curve_fn_ = std::make_shared<line_parent_curve>(
-              [pcX, pcY, pcDx, pcDy, convert_u](double u)->Eigen::Matrix4d {
+              [segment_type = segment_type_,pcX, pcY, pcDXx, pcDXy, pcDZy, pcDZz, convert_u](double u)->Eigen::Matrix4d {
                   u = convert_u(u);
 
-                  auto x = pcX + pcDx * u;
-                  auto y = pcY + pcDy * u;
+                  auto x = pcX + pcDXx * u;
+                  auto y = pcY + pcDXy * u;
 
                   Eigen::Matrix4d m = Eigen::Matrix4d::Identity();
-                  m.col(0) = Eigen::Vector4d(pcDx, pcDy, 0, 0);
-                  m.col(1) = Eigen::Vector4d(-pcDy, pcDx, 0, 0);
+                  Eigen::Vector3d X(pcDXx, pcDXy, 0);
+                  Eigen::Vector3d Z(0, 0, 1);
+
+                  if (segment_type == ST_CANT) {
+                      Z = Eigen::Vector3d(0, pcDZy, pcDZz);
+                  }
+
+                  Eigen::Vector3d Y = Z.cross(X).normalized();
+
+                  m.col(0) = Eigen::Vector4d(X[0], X[1], X[2], 0);
+                  m.col(1) = Eigen::Vector4d(Y[0], Y[1], Y[2], 0);
+                  m.col(2) = Eigen::Vector4d(Z[0], Z[1], Z[2], 0);
                   m.col(3) = Eigen::Vector4d(x, y, 0.0, 1.0);
                   return m;
               },
@@ -1031,7 +1069,7 @@ class curve_segment_evaluator {
 
           parent_curve_start_point_ = (*parent_curve_fn_)(start_);
        } else {
-           Logger::Warning(std::runtime_error("Unexpected segment type encountered"));
+           mapping_->logger().Warning("GEO", 251, std::runtime_error("Unexpected segment type encountered"));
            parent_curve_fn_ = std::make_shared<parent_curve_function>(
                [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); });
@@ -1045,7 +1083,7 @@ class curve_segment_evaluator {
         auto coeffY = pc->CoefficientsY().get_value_or(std::vector<double>());
         auto coeffZ = pc->CoefficientsZ().get_value_or(std::vector<double>());
         if (!coeffZ.empty()) {
-            Logger::Warning("Expected IfcPolynomialCurve.CoefficientsZ to be undefined for alignment geometry. Coefficients ignored.", pc);
+            mapping_->logger().Warning("GEO", 252, "Expected IfcPolynomialCurve.CoefficientsZ to be undefined for alignment geometry. Coefficients ignored.", pc);
         }
 
         if (segment_type_ == ST_HORIZONTAL || segment_type_ == ST_VERTICAL) {
@@ -1065,7 +1103,7 @@ class curve_segment_evaluator {
             // Distance along the curve is  Integral[0,x] (sqrt(f'(x)^2 + 1) dx
 
             // This functor is the derivative of y(x) => dy/dx = f'(x)
-            auto df = [lu=length_unit_,coeffY](double x) -> double {
+            auto df = [lu=length_unit_,coeffY,mapping=mapping_](double x) -> double {
                 auto begin = coeffY.begin();
                 auto iter = std::next(begin);
                 auto end = coeffY.end();
@@ -1100,7 +1138,7 @@ class curve_segment_evaluator {
             // A numerical solution is required.
             // This functor finds the value of x such that s(x) - u = 0, where u is the input value and s is the
             // computed curve length.
-            x_at_dist_along = [curve_length_fn](double u) -> double {
+            x_at_dist_along = [curve_length_fn, this](double u) -> double {
                 std::uintmax_t max_iter = 9000;
                 auto tol = [](double a, double b) { return fabs(b - a) < 1.0E-11; };
                 auto x = u; // start by assuming u = x (it's not, but it will be close)
@@ -1111,7 +1149,7 @@ class curve_segment_evaluator {
                     auto result = boost::math::tools::bracket_and_solve_root(f, x, 2.0, true, tol, max_iter);
                     x = result.first;
                 } catch (...) {
-                    Logger::Warning("root solver failed");
+                    logger_.Warning("GEO", 253, "root solver failed");
                 }
                 return x;
             };
@@ -1172,12 +1210,12 @@ class curve_segment_evaluator {
 
             parent_curve_start_point_ = (*parent_curve_fn_)(0.0); // start is added to u in parent_curve_fn_, so use 0.0 here
         } else if (segment_type_ == ST_CANT) {
-            Logger::Warning(std::runtime_error("Use of IfcPolynomialCurve for cant is not supported"));
+            mapping_->logger().Warning("UNS", 13, std::runtime_error("Use of IfcPolynomialCurve for cant is not supported"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); });
         } else {
-            Logger::Error(std::runtime_error("Unexpected segment type encountered"));
+            mapping_->logger().Error("GEO", 254, std::runtime_error("Unexpected segment type encountered"));
             parent_curve_fn_ = std::make_shared<parent_curve_function>(
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); },
                 [](double /*u*/) -> Eigen::Matrix4d { return Eigen::Matrix4d::Identity(); });

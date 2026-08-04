@@ -19,6 +19,9 @@
 import bpy
 import ifcopenshell
 import ifcopenshell.api
+import ifcopenshell.api.aggregate
+import ifcopenshell.api.feature
+import ifcopenshell.api.nest
 import ifcopenshell.api.root
 import ifcopenshell.api.spatial
 import numpy as np
@@ -148,6 +151,40 @@ class TestGetContainer(NewFile):
         assert subject.get_container(wall) == site
 
 
+class TestGetRootElement(NewFile):
+    def test_a_door_filling_a_wall_is_its_own_root_element(self):
+        ifc = ifcopenshell.file()
+        tool.Ifc.set(ifc)
+        wall = ifc.createIfcWall()
+        opening = ifc.createIfcOpeningElement()
+        door = ifc.createIfcDoor()
+        ifcopenshell.api.feature.add_feature(ifc, feature=opening, element=wall)
+        ifcopenshell.api.feature.add_filling(ifc, opening=opening, element=door)
+        assert subject.get_root_element(door) == door
+
+    def test_an_aggregated_element_walks_to_its_aggregate_root(self):
+        ifc = ifcopenshell.file()
+        tool.Ifc.set(ifc)
+        assembly = ifc.createIfcElementAssembly()
+        beam = ifc.createIfcBeam()
+        ifcopenshell.api.aggregate.assign_object(ifc, products=[beam], relating_object=assembly)
+        assert subject.get_root_element(beam) == assembly
+
+    def test_a_nested_element_walks_to_its_nest_root(self):
+        ifc = ifcopenshell.file()
+        tool.Ifc.set(ifc)
+        parent_task = ifc.createIfcTask()
+        child_task = ifc.createIfcTask()
+        ifcopenshell.api.nest.assign_object(ifc, related_objects=[child_task], relating_object=parent_task)
+        assert subject.get_root_element(child_task) == parent_task
+
+    def test_a_loose_element_is_its_own_root(self):
+        ifc = ifcopenshell.file()
+        tool.Ifc.set(ifc)
+        wall = ifc.createIfcWall()
+        assert subject.get_root_element(wall) == wall
+
+
 class TestGetDecomposedElements(NewFile):
     def test_run(self):
         ifc = ifcopenshell.file()
@@ -251,3 +288,27 @@ class TestGenerateSpace(NewFile):
             )
         )
         assert np.allclose(TEST_VERTS, sorted([tuple(v.co) for v in mesh.vertices]))
+
+    def test_regenerate_space_preserves_z_location(self):
+        bpy.ops.bim.create_project()
+        ifc = tool.Ifc.get()
+        scene = bpy.context.scene
+        product = ifcopenshell.api.root.create_entity(ifc, ifc_class="IfcWall")
+        bpy.ops.mesh.primitive_cube_add(size=10, location=(0, 0, 4))
+        obj = bpy.data.objects["Cube"]
+        scene.collection.objects.link(obj)
+        tool.Ifc.link(product, obj)
+        scene.cursor.location = (0, 0, 0)
+
+        bpy.ops.bim.generate_space()
+        space = bpy.data.objects["IfcSpace/Space"]
+        space.location.z = 5
+        bpy.context.view_layer.update()
+
+        bpy.context.view_layer.objects.active = space
+        space.select_set(True)
+        obj.select_set(False)
+
+        bpy.ops.bim.generate_space()
+
+        assert np.isclose(space.location.z, 5), f"Expected z=5, got {space.location.z}"

@@ -263,7 +263,7 @@ context_class = context
 
 class codegen_rule:
     def __init__(self, pattern, fn):
-        self.pattern = tuple(rule.parseString(pattern))
+        self.pattern = tuple(rule.parse_string(pattern))
         self.fn = fn
         if not hasattr(codegen_rule, "all_rules"):
             codegen_rule.all_rules = []
@@ -292,7 +292,7 @@ def process_rule_decl(context):
 class {context.rule_head.rule_id}:
     SCOPE = "file"
 
-    @staticmethod    
+    @staticmethod
     def __call__(file):
         {context.rule_head.entity_ref} = file.by_type("{context.rule_head.entity_ref}")
 {indent(8, context.algorithm_head.local_decl)}
@@ -335,7 +335,7 @@ class {class_name}_{domain_rule.rule_label_id}:
     TYPE_NAME = "{class_name}"
     RULE_NAME = "{domain_rule.rule_label_id}"
 
-    @staticmethod    
+    @staticmethod
     def __call__(self):
 {indent(8, (f"{a.lower()} = self.{a}" for a in attributes if re.search(f'{wb}{a.lower()}{wb}', str(domain_rule))))}
 {indent(8, domain_rule)}
@@ -696,6 +696,16 @@ codegen_rule("TRUE", lambda context: "True")
 codegen_rule("FALSE", lambda context: "False")
 
 
+def _dotted_name(node: ast.AST):
+    """Return dotted name for Name/Attribute chains, else None."""
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        base = _dotted_name(node.value)
+        return f"{base}.{node.attr}" if base else node.attr
+    return None
+
+
 class AttributeGetattrTransformer(ast.NodeTransformer):
     def visit_Attribute(self, node):
         parents = []
@@ -712,7 +722,7 @@ class AttributeGetattrTransformer(ast.NodeTransformer):
         if isinstance(node.ctx, ast.Store):
             return node
 
-        if node.attr == "create_entity":
+        if _dotted_name(node) in ("ifcopenshell.create_entity", "str.lower"):
             return node
 
         if node.attr.startswith("__"):
@@ -731,7 +741,7 @@ class AttributeGetattrTransformer(ast.NodeTransformer):
                 func=ast.Name(id="express_getattr", ctx=ast.Load()),
                 args=[
                     new_value,
-                    ast.Str(s=node.attr),
+                    ast.Constant(value=node.attr),
                     ast.Name(id="INDETERMINATE", ctx=ast.Load()),
                 ],
                 keywords=[],

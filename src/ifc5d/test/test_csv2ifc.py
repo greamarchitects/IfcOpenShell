@@ -17,6 +17,7 @@
 # along with IfcOpenShell.  If not, see <http://www.gnu.org/licenses/>.
 
 import csv
+import json
 import tempfile
 from pathlib import Path
 
@@ -118,3 +119,72 @@ class TestCsv2Ifc:
             writer.write()
             assert len(list(Path(temp_csv_dir).glob("*.ods"))) == 1
             assert len(list(Path(temp_csv_dir).glob("*.xlsx"))) == 1
+
+    def test_xlsx_columns_match_cost_panel(self):
+        """ODS/XLSX are presentation formats: they must show exactly what the
+        Bonsai cost panel shows (ID, Name, Quantity, Value, Total Cost), no
+        internal bookkeeping columns, no Description/Unit, no per-category
+        cost breakdown. See #6251."""
+        import openpyxl
+
+        ifc_file = self.setup_ifc_file()
+        csv_filepath = Path(__file__).parent.parent / "sample_cost_schedule_house_FR.csv"
+        ifc5d.csv2ifc.Csv2Ifc(str(csv_filepath), ifc_file).execute()
+
+        with tempfile.TemporaryDirectory("w") as temp_dir:
+            writer = ifc5d.ifc5Dspreadsheet.Ifc5DXlsxWriter(ifc_file, temp_dir)
+            writer.write()
+            workbook = openpyxl.load_workbook(next(Path(temp_dir).glob("*.xlsx")))
+            worksheet = workbook.active
+
+            headers = [cell.value for cell in next(worksheet.iter_rows())]
+            assert headers == ["ID", "Name", "Quantity", "Value", "Total Cost"]
+
+            # A leaf item (has quantity and value) gets Quantity * Value.
+            leaf_row = next(row for row in worksheet.iter_rows(min_row=2) if row[0].value == "DB.1.1")
+            assert leaf_row[4].value == "=C{}*D{}".format(leaf_row[0].row, leaf_row[0].row)
+
+            # A parent/sum item gets the sum of its direct children's Total Cost.
+            parent_row = next(row for row in worksheet.iter_rows(min_row=2) if row[0].value == "DB.1")
+            assert parent_row[4].value.startswith("=SUM(")
+
+
+class TestSerialiseCostQuantities:
+    def test_quantity_name_with_special_characters_round_trips_as_json(self):
+        ifc_file = ifcopenshell.file()
+        name = 'Prospetto est "Np=256,667-23"'
+        quantity = ifc_file.create_entity("IfcQuantityArea", Name=name, AreaValue=12.5)
+        cost_item = ifc_file.create_entity("IfcCostItem", CostQuantities=[quantity])
+
+        result = ifc5d.ifc5Dspreadsheet.IfcDataGetter.serialise_cost_quantities(ifc_file, cost_item)
+
+        assert json.loads(result) == [[name, 12.5, ""]]
+
+    def test_unset_name_does_not_crash(self):
+        ifc_file = ifcopenshell.file()
+        # Name left unset so quantity.Name resolves to None at access time.
+        quantity = ifc_file.create_entity("IfcQuantityArea", AreaValue=3.0)
+        cost_item = ifc_file.create_entity("IfcCostItem", CostQuantities=[quantity])
+
+        result = ifc5d.ifc5Dspreadsheet.IfcDataGetter.serialise_cost_quantities(ifc_file, cost_item)
+
+        assert json.loads(result) == [["", 3.0, ""]]
+
+    def test_formula_is_included_when_present(self):
+        ifc_file = ifcopenshell.file()
+        quantity = ifc_file.create_entity("IfcQuantityArea", Name="Area", AreaValue=12.5, Formula="Length * Width")
+        cost_item = ifc_file.create_entity("IfcCostItem", CostQuantities=[quantity])
+
+        result = ifc5d.ifc5Dspreadsheet.IfcDataGetter.serialise_cost_quantities(ifc_file, cost_item)
+
+        assert json.loads(result) == [["Area", 12.5, "Length * Width"]]
+
+    def test_quantity_without_formula_attribute_does_not_crash(self):
+        # IfcPhysicalComplexQuantity has no Formula attribute and is unsupported.
+        ifc_file = ifcopenshell.file()
+        quantity = ifc_file.create_entity("IfcPhysicalComplexQuantity", Name="Complex", Discrimination="layer")
+        cost_item = ifc_file.create_entity("IfcCostItem", CostQuantities=[quantity])
+
+        result = ifc5d.ifc5Dspreadsheet.IfcDataGetter.serialise_cost_quantities(ifc_file, cost_item)
+
+        assert json.loads(result) == [["Complex ERROR: Only IfcPhysicalSimpleQuantity is supported", 0.0, ""]]

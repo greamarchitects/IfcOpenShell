@@ -21,16 +21,19 @@ dependencies = [
     "isodate",
     "python-dateutil",
     "lark",
+    "pyparsing",
     "typing-extensions",
 ]
 
 [project.optional-dependencies]
 advanced = [
+  # `express` module - only for generating schemas.
   "networkx",
 ]
 dev = [
   "pytest",
   "tabulate",
+  "types-networkx",
 ]
 
 [project.urls]

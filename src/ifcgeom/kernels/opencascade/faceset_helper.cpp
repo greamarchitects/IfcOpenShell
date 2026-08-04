@@ -149,12 +149,18 @@ IfcGeom::OpenCascadeKernel::faceset_helper::faceset_helper(
 		auto num_retained = std::count(retained.begin(), retained.end(), true);
 
 		if (unique.size() != num_retained) {
-			Logger::Notice("Collapsed vertices from " + std::to_string(pnts.size()) + " (" + std::to_string(unique.size()) + " unique) to " + std::to_string(num_retained));
+			Logger::Root().Notice("GEO", 168, "Collapsed vertices from " + std::to_string(pnts.size()) + " (" + std::to_string(unique.size()) + " unique) to " + std::to_string(num_retained));
 		}
 
 		typedef std::array<int, 2> edge_t;
 		typedef std::set<edge_t> edge_set_t;
-		std::set<edge_set_t> edge_sets;
+		// When a single face fills an interior loop, their edge_sets (canonicalized edges) will be identical.
+		// We can differentiate in this scenario in two ways:
+		//   - std::map<edge_t, bool> retain the edge order from the bool passed to the loop_() lambda
+		//   - std::pair<bool, edge_set_t> with pair::first populated from external (FaceBound / OuterBound)
+		// The second has been found more reliable for typical models, because inner bound winding can be wrong.
+		// The can be made more resilient by first checking correct population of external and falling back to approach 1.
+		std::set<std::pair<bool, edge_set_t>> edge_sets;
 
 		for (auto& loop : loops) {
 			std::vector<std::pair<int, int> > segments;
@@ -165,12 +171,12 @@ IfcGeom::OpenCascadeKernel::faceset_helper::faceset_helper(
 				segments.push_back(std::make_pair(C, D));
 			});
 
-			if (edge_sets.find(segment_set) != edge_sets.end()) {
+			if (edge_sets.find({loop->external.get_value_or(false), segment_set}) != edge_sets.end()) {
 				duplicate_faces++;
 				duplicates_.insert(loop->identity());
 				continue;
 			}
-			edge_sets.insert(segment_set);
+            edge_sets.insert({loop->external.get_value_or(false), segment_set});
 
 			if (segments.size() >= 3) {
 				for (auto& p : segments) {
@@ -199,7 +205,7 @@ IfcGeom::OpenCascadeKernel::faceset_helper::faceset_helper(
 	}
 
 	if (duplicates_.size() || loops_removed || (non_manifold && shell->closed.get_value_or(false))) {
-		Logger::Warning(boost::lexical_cast<std::string>(duplicate_faces) + " duplicate faces removed, " + boost::lexical_cast<std::string>(loops_removed) + " degenerate loops eliminated and " + boost::lexical_cast<std::string>(non_manifold) + " non-manifold edges");
+		Logger::Root().Warning("GEO", 169, boost::lexical_cast<std::string>(duplicate_faces) + " duplicate faces removed, " + boost::lexical_cast<std::string>(loops_removed) + " degenerate loops eliminated and " + boost::lexical_cast<std::string>(non_manifold) + " non-manifold edges");
 	}
 }
 
@@ -235,7 +241,7 @@ bool IfcGeom::OpenCascadeKernel::faceset_helper::edge(int A, int B, TopoDS_Edge&
 }
 
 bool IfcGeom::OpenCascadeKernel::faceset_helper::wire(const ifcopenshell::geometry::taxonomy::loop::ptr loop, TopoDS_Wire& w) {
-	TopTools_ListOfShape ws;
+    NCollection_List<TopoDS_Shape> ws;
 	if (!wires(loop, ws)) {
 		return false;
 	}
@@ -243,7 +249,7 @@ bool IfcGeom::OpenCascadeKernel::faceset_helper::wire(const ifcopenshell::geomet
 	return true;
 }
 
-bool IfcGeom::OpenCascadeKernel::faceset_helper::wires(const ifcopenshell::geometry::taxonomy::loop::ptr loop, TopTools_ListOfShape& wires) {
+bool IfcGeom::OpenCascadeKernel::faceset_helper::wires(const ifcopenshell::geometry::taxonomy::loop::ptr loop, NCollection_List<TopoDS_Shape>& wires) {
 	if (duplicates_.find(loop->identity()) != duplicates_.end()) {
 		return false;
 	}
@@ -264,13 +270,13 @@ bool IfcGeom::OpenCascadeKernel::faceset_helper::wires(const ifcopenshell::geome
 	if (count >= 3) {
 		wire.Closed(true);
 
-		TopTools_ListOfShape results;
+		NCollection_List<TopoDS_Shape> results;
 		if (!kernel_->settings().get<ifcopenshell::geometry::settings::NoWireIntersectionCheck>().get() && util::wire_intersections(wire, results, {
 			!kernel_->settings().get<ifcopenshell::geometry::settings::NoWireIntersectionCheck>().get(),
 			!kernel_->settings().get<ifcopenshell::geometry::settings::NoWireIntersectionTolerance>().get(), 0.,
 			kernel_->settings().get<ifcopenshell::geometry::settings::Precision>().get()}))
 		{
-			Logger::Warning("Self-intersections with " + boost::lexical_cast<std::string>(results.Extent()) + " cycles detected");
+			Logger::Root().Warning("GEO", 170, "Self-intersections with " + boost::lexical_cast<std::string>(results.Extent()) + " cycles detected");
 			non_manifold_ = true;
 			wires = results;
 		} else {

@@ -102,6 +102,26 @@ class EditMaterial(bpy.types.Operator, tool.Ifc.Operator):
         core.edit_material(tool.Ifc, tool.Material, material=tool.Ifc.get().by_id(self.material))
 
 
+class RenameMaterial(bpy.types.Operator, tool.Ifc.Operator):
+    bl_idname = "bim.rename_material"
+    bl_label = "Rename Material"
+    bl_description = "Rename an IfcMaterial"
+    bl_options = {"REGISTER", "UNDO"}
+    material: bpy.props.IntProperty()
+    name: bpy.props.StringProperty(name="Name")
+
+    def invoke(self, context, event):
+        material = tool.Ifc.get().by_id(self.material)
+        self.name = material.Name or ""
+        return context.window_manager.invoke_props_dialog(self)
+
+    def draw(self, context):
+        self.layout.prop(self, "name")
+
+    def _execute(self, context):
+        core.rename_material(tool.Ifc, tool.Material, material=tool.Ifc.get().by_id(self.material), name=self.name)
+
+
 class DisableEditingMaterial(bpy.types.Operator):
     bl_idname = "bim.disable_editing_material"
     bl_label = "Disable Editing Material"
@@ -630,13 +650,23 @@ class EditAssignedMaterial(bpy.types.Operator, tool.Ifc.Operator):
                     slab.DumbSlabPlaner().regenerate_from_layer_set(layer_set)
 
             if material_set_usage.is_a("IfcMaterialProfileSetUsage"):
-                if "CardinalPoint" in attributes:
+                if "CardinalPoint" in attributes and attributes["CardinalPoint"] is not None:
                     attributes["CardinalPoint"] = int(attributes["CardinalPoint"])
                 ifcopenshell.api.material.edit_profile_usage(
                     self.file,
                     usage=material_set_usage,
                     attributes=attributes,
                 )
+
+                for obj in objects:
+                    obj_element = tool.Ifc.get_entity(obj)
+                    if not obj_element:
+                        continue
+                    obj_material_usage = ifcopenshell.util.element.get_material(obj_element)
+                    if obj_material_usage and obj_material_usage.is_a("IfcMaterialProfileSetUsage"):
+                        obj_material_usage.CardinalPoint = material_set_usage.CardinalPoint
+                        obj_material_usage.ReferenceExtent = material_set_usage.ReferenceExtent
+
                 model_profile.DumbProfileRecalculator().recalculate(objects)
 
         bpy.ops.bim.disable_editing_assigned_material(obj=active_obj.name)

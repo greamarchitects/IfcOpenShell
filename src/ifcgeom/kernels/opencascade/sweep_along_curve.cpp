@@ -40,7 +40,7 @@ namespace {
 	bool wire_is_c1_continuous(const TopoDS_Wire& w, double tol) {
 		// NB Note that c0 continuity is NOT checked!
 
-		TopTools_IndexedDataMapOfShapeListOfShape map;
+		NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> map;
 		TopExp::MapShapesAndAncestors(w, TopAbs_VERTEX, TopAbs_EDGE, map);
 		for (int i = 1; i <= map.Extent(); ++i) {
 			const auto& li = map.FindFromIndex(i);
@@ -128,9 +128,14 @@ bool OpenCascadeKernel::convert(const taxonomy::sweep_along_curve::ptr scs, Topo
         }
     }
 	
-	auto w = convert_curve(scs->curve);
+	// Build the wire from curve, which is the directrix offset toward the origin
+	// when applied_temporary_offset is set. Using scs->curve here left the wire
+	// far from the origin yet still translated the result back by +mean, which
+	// misplaced sweeps far from the origin (#4848). When no offset is applied
+	// curve aliases scs->curve, so near-origin geometry is unaffected.
+	auto w = convert_curve(curve);
 	if (w.which() != 2) {
-		Logger::Error("Unsupported directrix");
+		Logger::Root().Error("UNS", 9, "Unsupported directrix");
 		return false;
 	}
 	TopoDS_Shape face_;
@@ -178,7 +183,7 @@ bool OpenCascadeKernel::convert(const taxonomy::sweep_along_curve::ptr scs, Topo
 			for (TopExp_Explorer exp(wire, TopAbs_VERTEX); exp.More(); exp.Next()) {
 				if (pln.Distance(BRep_Tool::Pnt(TopoDS::Vertex(exp.Current()))) > ALMOST_ZERO) {
 					directrix_on_plane = false;
-					Logger::Message(Logger::LOG_WARNING, "The Directrix does not lie on the ReferenceSurface", scs->instance);
+					Logger::Root().Message(Logger::LOG_WARNING, "GEO", 202, "The Directrix does not lie on the ReferenceSurface", scs->instance);
 					break;
 				}
 			}
@@ -188,7 +193,7 @@ bool OpenCascadeKernel::convert(const taxonomy::sweep_along_curve::ptr scs, Topo
 	{
 		TopoDS_Vertex v0, v1;
 		TopExp::Vertices(wire, v0, v1);
-		TopTools_IndexedDataMapOfShapeListOfShape m;
+        NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> m;
 		TopExp::MapShapesAndAncestors(wire, TopAbs_VERTEX, TopAbs_EDGE, m);
 		const TopoDS_Edge& edge = TopoDS::Edge(m.FindFromKey(v0).First());
 		double u0, u1;
@@ -300,7 +305,11 @@ bool OpenCascadeKernel::convert(const taxonomy::sweep_along_curve::ptr scs, Topo
 
 	if (applied_temporary_offset) {
         gp_Trsf trsf;
-        trsf.SetTranslation(gp_Vec(-mean.x(), -mean.y(), -mean.z()));
+        // Restore original position: add back the mean subtracted from the
+        // directrix points above. Previously negated, which placed the swept
+        // solid at -mean instead of its original location for geometry far
+        // from the origin.
+        trsf.SetTranslation(gp_Vec(mean.x(), mean.y(), mean.z()));
         result.Move(trsf);
     }
 

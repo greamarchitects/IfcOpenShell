@@ -121,6 +121,12 @@ class Usecase:
     blender_object: bpy.types.Object
 
     def execute(self) -> Union[ifcopenshell.entity_instance, None]:
+        # IfcTriangulatedFaceSet/IfcPolygonalFaceSet were introduced in IFC4 and
+        # do not exist in IFC2X3. Without this guard create_mesh_representation()
+        # silently falls back to a faceted brep, ignoring the requested class.
+        if self.settings["ifc_representation_class"] == "IfcTessellatedFaceSet" and self.file.schema == "IFC2X3":
+            raise ValueError("Tessellated face sets (IfcTessellatedFaceSet) are not supported in IFC2X3.")
+
         self.is_manifold = None
         self.coordinate_offset = self.settings["coordinate_offset"]
         self.geometry = self.settings["geometry"]
@@ -430,6 +436,7 @@ class Usecase:
 
     def create_curve_bounded_planes(self, is_2d: bool = False) -> list[ifcopenshell.entity_instance]:
         items = []
+        points = None
         if self.file.schema != "IFC2X3":
             points = self.create_cartesian_point_list_from_vertices(self.settings["geometry"].vertices, is_2d=False)
         for polygon in self.settings["geometry"].polygons:
@@ -437,6 +444,7 @@ class Usecase:
             if self.file.schema == "IFC2X3":
                 curve = self.create_curve_from_polygon_ifc2x3(polygon, is_2d=False)
             else:
+                assert points is not None
                 curve = self.create_curve_from_polygon(points, polygon, is_2d=False)
             items.append(self.file.createIfcCurveBoundedPlane(BasisSurface=plane, OuterBoundary=curve))
         return items
@@ -451,12 +459,14 @@ class Usecase:
 
     def create_annotation_fill_areas(self, is_2d: bool = False) -> list[ifcopenshell.entity_instance]:
         items = []
+        points = None
         if self.file.schema != "IFC2X3":
             points = self.create_cartesian_point_list_from_vertices(self.settings["geometry"].vertices, is_2d=is_2d)
         for polygon in self.settings["geometry"].polygons:
             if self.file.schema == "IFC2X3":
                 curve = self.create_curve_from_polygon_ifc2x3(polygon, is_2d=is_2d)
             else:
+                assert points is not None
                 curve = self.create_curve_from_polygon(points, polygon, is_2d=is_2d)
             items.append(self.file.createIfcAnnotationFillArea(OuterBoundary=curve))
         return items
@@ -807,17 +817,20 @@ class Usecase:
 
     def create_triangulated_face_set(self) -> ifcopenshell.entity_instance:
         ifc_raw_items = [None] * self.settings["total_items"]
+        ifc_raw_uv_items = None
         if self.settings["should_generate_uvs"]:
             ifc_raw_uv_items = [None] * self.settings["total_items"]
         for i, value in enumerate(ifc_raw_items):
             ifc_raw_items[i] = []
             if self.settings["should_generate_uvs"]:
+                assert ifc_raw_uv_items is not None
                 ifc_raw_uv_items[i] = []
         for polygon in self.settings["geometry"].polygons:
             ifc_raw_items[polygon.material_index % self.settings["total_items"]].append(
                 [v + 1 for v in polygon.vertices]
             )
             if self.settings["should_generate_uvs"]:
+                assert ifc_raw_uv_items is not None
                 ifc_raw_uv_items[polygon.material_index % self.settings["total_items"]].append(
                     [uv + 1 for uv in polygon.loop_indices]
                 )
@@ -825,6 +838,7 @@ class Usecase:
         coordinates = self.create_cartesian_point_list_from_vertices(self.settings["geometry"].vertices)
 
         if self.settings["should_generate_uvs"]:
+            assert ifc_raw_uv_items is not None
             # Blender supports multiple UV layers. We don't. Too bad.
             tex_coords = self.file.createIfcTextureVertexList(
                 [tuple(x.uv) for x in self.settings["geometry"].uv_layers[0].data]

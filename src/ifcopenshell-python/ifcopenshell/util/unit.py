@@ -644,6 +644,11 @@ def convert_unit(value: float, from_unit: ifcopenshell.entity_instance, to_unit:
     )
 
 
+def mm_to_m(value: float) -> float:
+    """Convert a millimetre value to metres."""
+    return value / 1000
+
+
 def convert(value: float, from_prefix: Optional[str], from_unit: str, to_prefix: Optional[str], to_unit: str) -> float:
     """Converts between length, area, and volume units
 
@@ -906,6 +911,13 @@ def convert_file_length_units(ifc_file: ifcopenshell.file, target_units: str = "
         else:
             new_value = convert_value(val)
             setattr(element, attr.name(), new_value)
+
+    # IfcGeometricRepresentationContext.Precision is typed as a plain IfcReal
+    # but is interpreted in the project length unit, so it must be scaled too.
+    # Subcontexts derive Precision from their parent and cannot be set.
+    for context in file_patched.by_type("IfcGeometricRepresentationContext", include_subtypes=False):
+        if context.Precision is not None:
+            context.Precision = convert_unit(context.Precision, old_length, new_length)
 
     has_map_unit = False
     if (

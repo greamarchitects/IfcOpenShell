@@ -25,7 +25,9 @@
 #include <algorithm>
 #include <boost/algorithm/string.hpp>
 #include <cctype>
+#include <cstdint>
 #include <iterator>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -511,11 +513,11 @@ class IFC_PARSE_API schema_definition {
     IfcUtil::IfcBaseClass* instantiate(const IfcParse::declaration* decl, IfcEntityInstanceData&& data) const;
 };
 
-IFC_PARSE_API const schema_definition* schema_by_name(const std::string&);
+IFC_PARSE_API const schema_definition* schema_by_name(const std::string& schema_name);
 
 IFC_PARSE_API std::vector<std::string> schema_names();
 
-IFC_PARSE_API void register_schema(schema_definition*);
+IFC_PARSE_API void register_schema(schema_definition* schema);
 
 IFC_PARSE_API void clear_schemas();
 } // namespace IfcParse

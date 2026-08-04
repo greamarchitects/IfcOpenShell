@@ -841,7 +841,7 @@ class EditObjectUI:
         row = cls.layout.row(align=True)
         row.separator()
         row.label(text="Operations") if ui_context != "TOOL_HEADER" else row
-        cls.draw_regen_operations(row)
+        cls.draw_regen_operations(row, ui_context)
 
         if AuthoringData.data["active_material_usage"] == "LAYER2":
             row = cls.layout.row(align=True) if ui_context != "TOOL_HEADER" else row
@@ -962,20 +962,20 @@ class EditObjectUI:
         return row
 
     @classmethod
-    def draw_regen_operations(cls, row):
-        custom_icon = custom_icon_previews.get("REGEN", custom_icon_previews["IFC"]).icon_id
-
-        if AuthoringData.data["is_regenable_element"]:
-            op = row.operator("bim.hotkey", text="", icon_value=custom_icon)
-            description = "Recalculate Element Geometry\nHotkey: S G"
-            op.hotkey = "S_G"
-            op.description = description.strip()
+    def draw_regen_operations(cls, row, ui_context):
+        # ``AuthoringData.load`` flips ``is_loaded`` at entry as a recursion
+        # guard, so a partial load (any computation along the way raising)
+        # leaves the tail keys unset. ``.get()`` keeps the header draw alive
+        # until the underlying failure is investigated.
+        if AuthoringData.data.get("is_regenable_element"):
+            row = cls.layout.row(align=True) if ui_context != "TOOL_HEADER" else row
+            add_layout_hotkey_operator(row, "Regen", "S_G", "Recalculate Element Geometry", ui_context)
 
         if PortData.data["total_ports"] > 0:
-            op = row.operator("bim.hotkey", text="", icon_value=custom_icon)
-            description = f"{bpy.ops.bim.regenerate_distribution_element.__doc__}\n\nHotkey: S G"
-            op.hotkey = "S_G"
-            op.description = description.strip()
+            row = cls.layout.row(align=True) if ui_context != "TOOL_HEADER" else row
+            add_layout_hotkey_operator(
+                row, "Regen", "S_G", bpy.ops.bim.regenerate_distribution_element.__doc__, ui_context
+            )
 
     @classmethod
     def draw_void(cls, context, row):
@@ -1300,9 +1300,15 @@ class Hotkey(bpy.types.Operator, tool.Ifc.Operator):
                 bpy.ops.bim.generate_space()
             return
         if self.active_material_usage == "LAYER2":
-            bpy.ops.bim.recalculate_wall()
+            if element and tool.Model.has_underside_connection(element):
+                bpy.ops.bim.regenerate_wall_to_underside()
+            else:
+                bpy.ops.bim.recalculate_wall()
         elif self.active_material_usage == "LAYER3":
             bpy.ops.bim.recalculate_slab()
+            wall_objs = tool.Model.get_connected_wall_objs(element)
+            if wall_objs:
+                core.regenerate_wall_to_underside(tool.Ifc, tool.Geometry, tool.Model, wall_objs)
         elif tool.System.get_ports(element):
             bpy.ops.bim.regenerate_distribution_element()
         elif self.active_material_usage == "PROFILE":
@@ -1315,7 +1321,7 @@ class Hotkey(bpy.types.Operator, tool.Ifc.Operator):
                 bpy.ops.bim.recalculate_profile()
         elif self.active_class in ("IfcWindow", "IfcWindowStandardCase", "IfcDoor", "IfcDoorStandardCase"):
             bpy.ops.bim.recalculate_fill()
-        elif self.active_class in ("IfcSpace"):
+        elif self.active_class in ("IfcSpace",):
             bpy.ops.bim.generate_space()
 
     def hotkey_S_M(self):
@@ -1442,10 +1448,7 @@ class Hotkey(bpy.types.Operator, tool.Ifc.Operator):
             bpy.ops.bim.enable_editing_extrusion_axis()
 
     def hotkey_A_O(self):
-        if tool.Model.get_model_props().openings:
-            bpy.ops.bim.edit_openings(apply_all=True)
-        else:
-            bpy.ops.bim.show_openings()
+        bpy.ops.bim.toggle_host_openings()
 
     def hotkey_C_E(self):
         if not bpy.context.selected_objects:

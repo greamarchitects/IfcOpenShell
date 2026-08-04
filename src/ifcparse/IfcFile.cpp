@@ -4,9 +4,12 @@
 #ifdef IFOPSH_WITH_ROCKSDB
 #include <rocksdb/table.h>
 #include <rocksdb/convenience.h>
+#include <rocksdb/version.h>
 #endif
 
 #include <fstream>
+#include <memory>
+#include <utility>
 #include <sys/types.h>
 #include <sys/stat.h>
 
@@ -56,7 +59,7 @@ namespace {
     constexpr bool is_type_in_variant_v = is_type_in_variant<Variant, T>::value;
 
     template <typename Fn>
-    void dispatch_token(boost::optional<size_t> instance_id, int attribute_id, IfcParse::Token t, IfcParse::declaration* decl, Fn fn) {
+    void dispatch_token(boost::optional<size_t> instance_id, int attribute_id, IfcParse::Token t, IfcParse::declaration* decl, Logger& logger, Fn fn) {
         if (t.type == IfcParse::Token_BINARY) {
             fn(IfcParse::TokenFunc::asBinary(t));
         } else if (IfcParse::TokenFunc::isBool(t)) {
@@ -69,10 +72,10 @@ namespace {
                 try {
                     fn(EnumerationReference(decl->as_enumeration_type(), decl->as_enumeration_type()->lookup_enum_offset(s)));
                 } catch (IfcParse::IfcException& e) {
-                    Logger::Error("An enumeration literal '" + s + "' is not valid for type '" + decl->name() + "' at offset " + std::to_string(t.startPos));
+                    logger.Error("VAL", 12, "An enumeration literal '" + s + "' is not valid for type '" + decl->name() + "' at offset " + std::to_string(t.startPos));
                 }
             } else {
-                Logger::Error("An enumeration literal '" + s + "' is not expected at attribute index '" + std::to_string(attribute_id) + "' at offset " + std::to_string(t.startPos));
+                logger.Error("VAL", 13, "An enumeration literal '" + s + "' is not expected at attribute index '" + std::to_string(attribute_id) + "' at offset " + std::to_string(t.startPos));
             }
         } else if (t.type == IfcParse::Token_FLOAT) {
             fn(IfcParse::TokenFunc::asFloat(t));
@@ -89,7 +92,7 @@ namespace {
     }
 
     template <size_t Depth, typename Fn>
-    void construct_(boost::optional<size_t> instance_id, int attribute_id, IfcParse::parse_context& p, const IfcParse::aggregation_type* aggr, Fn fn) {
+    void construct_(boost::optional<size_t> instance_id, int attribute_id, IfcParse::parse_context& p, const IfcParse::aggregation_type* aggr, Logger& logger, Fn fn) {
         if (p.tokens_.empty()) {
             // @todo instead of ugly if-else we could also default initialize the respective
             // variant types below.
@@ -132,7 +135,7 @@ namespace {
 
         possible_aggregation_types_t aggregate_storage;
 
-        auto append_to_aggregate_storage = [&aggregate_storage](const auto& v) {
+        auto append_to_aggregate_storage = [&aggregate_storage, &logger](const auto& v) {
             if constexpr (is_type_in_variant_v<possible_aggregation_types_t, std::vector<std::decay_t<decltype(v)>>>) {
                 if (aggregate_storage.index() == 0) {
                     aggregate_storage = std::vector<std::decay_t<decltype(v)>>{ v };
@@ -191,7 +194,7 @@ namespace {
                             }
                         }, aggregate_storage);
 
-                        Logger::Error("Inconsistent aggregate valuation while attempting to append " + std::string(typeid(decltype(v)).name()) + " to an aggregate of " + current);
+                        logger.Error("VAL", 14, "Inconsistent aggregate valuation while attempting to append " + std::string(typeid(decltype(v)).name()) + " to an aggregate of " + current);
 
                         // @todo boolean -> logical upgrade
                         // wait a second... there are no aggregate of bool / logical in the schema..
@@ -210,19 +213,19 @@ namespace {
                 }
             } else {
                 // @todo would be cool if we can trace this back to file offset
-                Logger::Error(std::string("Aggregates of ") + typeid(decltype(v)).name() + " are not supported in the IfcOpenShell parser");
+                logger.Error("UNS", 31, std::string("Aggregates of ") + typeid(decltype(v)).name() + " are not supported in the IfcOpenShell parser");
             }
         };
 
         for (auto& t : p.tokens_) {
-            std::visit([&aggregate_storage, &append_to_aggregate_storage, aggr, instance_id, attribute_id](const auto& v) {
+            std::visit([&aggregate_storage, &append_to_aggregate_storage, aggr, instance_id, attribute_id, &logger](const auto& v) {
                 if constexpr (std::is_same_v<std::decay_t<decltype(v)>, IfcParse::Token>) {
                     // @todo get aggregate of enumeration
-                    dispatch_token(instance_id, attribute_id, v, aggr && aggr->type_of_element()->as_named_type() ? aggr->type_of_element()->as_named_type()->declared_type() : nullptr, append_to_aggregate_storage);
+                    dispatch_token(instance_id, attribute_id, v, aggr && aggr->type_of_element()->as_named_type() ? aggr->type_of_element()->as_named_type()->declared_type() : nullptr, logger, append_to_aggregate_storage);
                 } else if constexpr (std::is_same_v<std::decay_t<decltype(v)>, IfcParse::parse_context*>) {
                     // nested list
                     if constexpr (Depth < 3) {
-                        construct_<Depth + 1>(instance_id, attribute_id, *v, nullptr, append_to_aggregate_storage);
+                        construct_<Depth + 1>(instance_id, attribute_id, *v, nullptr, logger, append_to_aggregate_storage);
                     }
                 } else {
                     append_to_aggregate_storage(IfcParse::reference_or_simple_type{ v });
@@ -234,7 +237,7 @@ namespace {
     }
 }
 
-IfcEntityInstanceData IfcParse::parse_context::construct(boost::optional<size_t> name, unresolved_references& references_to_resolve, const IfcParse::declaration* decl, boost::optional<size_t> expected_size, int resolve_reference_index, bool coerce_attribute_count) {
+IfcEntityInstanceData IfcParse::parse_context::construct(boost::optional<size_t> name, unresolved_references& references_to_resolve, const IfcParse::declaration* decl, boost::optional<size_t> expected_size, int resolve_reference_index, Logger& logger, bool coerce_attribute_count) {
     std::vector<const IfcParse::parameter_type*> parameter_types;
     std::unique_ptr<IfcParse::named_type> transient_named_type;
 
@@ -260,9 +263,9 @@ IfcEntityInstanceData IfcParse::parse_context::construct(boost::optional<size_t>
     {
         size_t expected = expected_size ? *expected_size : parameter_types.size();
         if (decl != nullptr && decl->schema() == &Header_section_schema::get_schema()) {
-            Logger::Warning("Expected " + std::to_string(expected) + " attribute values, found " + std::to_string(tokens_.size()) + " for header entity " + decl->name());
+            logger.Warning("VAL", 15, "Expected " + std::to_string(expected) + " attribute values, found " + std::to_string(tokens_.size()) + " for header entity " + decl->name());
         } else {
-            Logger::Warning("Expected " + std::to_string(expected) + " attribute values, found " + std::to_string(tokens_.size()) + (name ? std::string(" for instance #" + std::to_string(*name)) : std::string("")));
+            logger.Warning("VAL", 16, "Expected " + std::to_string(expected) + " attribute values, found " + std::to_string(tokens_.size()) + (name ? std::string(" for instance #" + std::to_string(*name)) : std::string("")));
         }
     }
 
@@ -270,9 +273,18 @@ IfcEntityInstanceData IfcParse::parse_context::construct(boost::optional<size_t>
         return IfcEntityInstanceData(in_memory_attribute_storage(0));
     }
 
+    // When the schema declaration is known, size the storage to the schema's
+    // attribute count rather than the (possibly smaller) number of tokens
+    // actually found. Attributes are only assigned for indices covered by
+    // tokens_ below; any remaining trailing indices stay at their
+    // default-constructed blank value. This keeps every instance's storage
+    // consistent with its schema arity, so that a malformed/truncated
+    // instance (e.g. corrupted STEP syntax dropping a trailing attribute)
+    // degrades to a blank value for the missing attribute instead of an
+    // out-of-range access when that attribute is later read by index.
     in_memory_attribute_storage storage(coerce_attribute_count
         ? (decl != nullptr
-        ? (std::min)(parameter_types.size(), tokens_.size())
+        ? parameter_types.size()
         : tokens_.size())
 		: tokens_.size()
     );
@@ -289,9 +301,9 @@ IfcEntityInstanceData IfcParse::parse_context::construct(boost::optional<size_t>
 
         auto index = (uint8_t) std::distance(tokens_.begin(), it);
 
-        std::visit([this, &storage, name, &references_to_resolve, index, param_type, resolve_reference_index](const auto& v) {
+        std::visit([this, &storage, name, &references_to_resolve, index, param_type, resolve_reference_index, &logger](const auto& v) {
             if constexpr (std::is_same_v<std::decay_t<decltype(v)>, IfcParse::Token>) {
-                dispatch_token(name, index, v, param_type && param_type->as_named_type() ? param_type->as_named_type()->declared_type() : nullptr, [this, &storage, name, &references_to_resolve, index, resolve_reference_index](auto v) {
+                dispatch_token(name, index, v, param_type && param_type->as_named_type() ? param_type->as_named_type()->declared_type() : nullptr, logger, [this, &storage, name, &references_to_resolve, index, resolve_reference_index](auto v) {
                     if constexpr (std::is_same_v<std::decay_t<decltype(v)>, IfcParse::reference_or_simple_type>) {
                         if (name) {
                             references_to_resolve.push_back(std::make_pair(
@@ -313,7 +325,7 @@ IfcEntityInstanceData IfcParse::parse_context::construct(boost::optional<size_t>
                         pt = pt->as_named_type()->declared_type()->as_type_declaration()->declared_type();
                     }
                 }
-                construct_<0>(name, index, *v, pt ? pt->as_aggregation_type() : nullptr, [this, &storage, name, &references_to_resolve, index, resolve_reference_index](const auto& v) {
+                construct_<0>(name, index, *v, pt ? pt->as_aggregation_type() : nullptr, logger, [this, &storage, name, &references_to_resolve, index, resolve_reference_index](const auto& v) {
                     if constexpr (std::is_same_v<std::decay_t<decltype(v)>, std::vector<reference_or_simple_type>>) {
                         if (name) {
                             references_to_resolve.push_back({ { (uint32_t) *name, resolve_reference_index == -1 ? index : (uint8_t)resolve_reference_index }, v });
@@ -410,10 +422,8 @@ IfcUtil::IfcBaseClass* IfcParse::impl::rocks_db_file_storage::assert_existance(s
 }
 
 namespace {
-    rocksdb::DB* init_db(const std::string& filepath, bool readonly) {
-        rocksdb::DB* db = nullptr;
+    std::unique_ptr<rocksdb::DB> init_db(const std::string& filepath, bool readonly) {
 #ifdef IFOPSH_WITH_ROCKSDB
-        
         rocksdb::Options options;
         // options.disable_auto_compactions = true;
         options.create_if_missing = true;
@@ -445,16 +455,31 @@ namespace {
         options.table_factory.reset(rocksdb::NewBlockBasedTableFactory(tbo));
 
         rocksdb::Status status;
+        std::unique_ptr<rocksdb::DB> db;
         if (readonly) {
+#if ROCKSDB_MAJOR > 9 || (ROCKSDB_MAJOR == 9 && ROCKSDB_MINOR >= 11)
             status = rocksdb::DB::OpenForReadOnly(options, filepath, &db);
+#else
+            rocksdb::DB* raw = nullptr;
+            status = rocksdb::DB::OpenForReadOnly(options, filepath, &raw);
+            db.reset(raw);
+#endif
         } else {
+#if ROCKSDB_MAJOR > 9 || (ROCKSDB_MAJOR == 9 && ROCKSDB_MINOR >= 11)
             status = rocksdb::DB::Open(options, filepath, &db);
+#else
+            rocksdb::DB* raw = nullptr;
+            status = rocksdb::DB::Open(options, filepath, &raw);
+            db.reset(raw);
+#endif
         }
         if (!status.ok()) {
             return nullptr;
         }
-#endif // IFOPSH_WITH_ROCKSDB#
         return db;
+#else
+        return nullptr;
+#endif
     }
 }
 
@@ -463,12 +488,12 @@ IfcParse::impl::rocks_db_file_storage::rocks_db_file_storage(const std::string& 
     : file(ffile)
     , db(init_db(filepath, readonly))
     // @todo streaming serializer does not populate the byguid map
-    , byguid_internal_(db, "g|")
+    , byguid_internal_(db.get(), "g|")
     , byguid_(&byguid_internal_, [this](size_t v) { return assert_existance(v, entityinstance_ref); }, [](IfcUtil::IfcBaseClass* v) { return v->identity(); })
-    , instance_ids_(db, "i|")
+    , instance_ids_(db.get(), "i|")
     , instance_by_name_(&instance_ids_, [this](size_t v) { return assert_existance(v, entityinstance_ref); })
-    , bytype_(db, "t|")
-    , byref_excl_(db, "v|")
+    , bytype_(db.get(), "t|")
+    , byref_excl_(db.get(), "v|")
     // @todo by_identity is probably not correct here, this mapping is Name -> Identity, so Fn should have access to full pair?
     // , byidentity_(&byid_, [this](size_t v) { return assert_existance(v, by_identity); }, [](IfcUtil::IfcBaseClass* v) { return v->identity(); })
 {
@@ -491,7 +516,6 @@ IfcParse::impl::rocks_db_file_storage::~rocks_db_file_storage()
     assert(s.ok());
 
     db->Close();
-    delete db;
 #endif
 }
 
@@ -704,13 +728,14 @@ std::optional<std::tuple<size_t, const IfcParse::declaration*, IfcEntityInstance
             try {
                 entity_type = schema_->declaration_by_name(TokenFunc::asStringRef(token_stream_[2]));
             } catch (const IfcException& ex) {
-                Logger::Message(Logger::LOG_ERROR, std::string(ex.what()) + " at offset " + std::to_string(token_stream_[2].startPos));
+                logger_.get().Message(Logger::LOG_ERROR, "SYN", 3, std::string(ex.what()) + " at offset " + std::to_string(token_stream_[2].startPos));
                 current_id = 0;
                 goto advance;
             }
 
             if (entity_type->as_entity() == nullptr) {
-                Logger::Message(Logger::LOG_ERROR, "Non entity type " + entity_type->name() + " at offset " + std::to_string(token_stream_[2].startPos));
+                logger_.get().Message(Logger::LOG_ERROR, "SYN", 4, "Non-entity type " + entity_type->name() + " at offset " + std::to_string(token_stream_[2].startPos));
+                current_id = 0;
                 goto advance;
             }
 
@@ -729,7 +754,7 @@ std::optional<std::tuple<size_t, const IfcParse::declaration*, IfcEntityInstance
                 storage_.load(current_id, entity_type->as_entity(), ps, -1);
             } catch (const IfcInvalidTokenException& e) {
                 good_ = file_open_status::INVALID_SYNTAX;
-                Logger::Error(e);
+                logger_.get().Error("SYN", 5, e);
                 break;
             }
 
@@ -738,10 +763,10 @@ std::optional<std::tuple<size_t, const IfcParse::declaration*, IfcEntityInstance
             if (((++progress_) % 1000) == 0) {
                 std::stringstream ss;
                 ss << "\r#" << current_id;
-                Logger::Status(ss.str(), false);
+                logger_.get().Status(ss.str(), false);
             }
 
-            auto data = ps.construct(current_id, references_to_resolve_, entity_type, boost::none, -1, coerce_attribute_count);
+            auto data = ps.construct(current_id, references_to_resolve_, entity_type, boost::none, -1, logger_.get(), coerce_attribute_count);
 
             return_value.emplace(
                 (size_t)current_id,
@@ -754,9 +779,9 @@ std::optional<std::tuple<size_t, const IfcParse::declaration*, IfcEntityInstance
         try {
             next_token = lexer_->Next();
         } catch (const IfcException& e) {
-            Logger::Message(Logger::LOG_ERROR, std::string(e.what()) + ". Parsing terminated");
+            logger_.get().Message(Logger::LOG_ERROR, "SYN", 6, std::string(e.what()) + ". Parsing terminated");
         } catch (...) {
-            Logger::Message(Logger::LOG_ERROR, "Parsing terminated");
+            logger_.get().Message(Logger::LOG_ERROR, "SYN", 7, "Parsing terminated");
         }
 
         if (!lexer_->stream->eof() && next_token.type == Token_NONE) {

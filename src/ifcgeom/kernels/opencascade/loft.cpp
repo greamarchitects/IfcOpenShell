@@ -83,7 +83,7 @@ bool OpenCascadeKernel::convert(const taxonomy::loft::ptr loft, TopoDS_Shape& re
 
 	if (non_polygonal) {
 		if (loft->children.size() < 2) {
-            Logger::Error("Not enough sections to loft");
+            Logger::Root().Error("GEO", 177, "Not enough sections to loft");
             return false;
         }
 
@@ -124,7 +124,7 @@ bool OpenCascadeKernel::convert(const taxonomy::loft::ptr loft, TopoDS_Shape& re
 		auto first_wire_count = sections.front().size();
         for (auto& section : sections) {
 			if (section.size() != first_wire_count) {
-				Logger::Error("Inconsistent number of wires in sections");
+				Logger::Root().Error("GEO", 178, "Inconsistent number of wires in sections");
 				return false;
 			}
         }
@@ -157,7 +157,7 @@ bool OpenCascadeKernel::convert(const taxonomy::loft::ptr loft, TopoDS_Shape& re
 		return true;
 	}
 	
-	TopTools_ListOfShape faces;
+	NCollection_List<TopoDS_Shape> faces;
 	TopoDS_Compound comp;
 	BRep_Builder BB;
 	BB.MakeCompound(comp);
@@ -261,7 +261,7 @@ bool OpenCascadeKernel::convert(const taxonomy::loft::ptr loft, TopoDS_Shape& re
 	*/
 
     if (shps.size() < 2) {
-        Logger::Error("Not enough sections to loft");
+        Logger::Root().Error("GEO", 179, "Not enough sections to loft");
         return false;
     }
 
@@ -307,7 +307,7 @@ bool OpenCascadeKernel::convert(const taxonomy::loft::ptr loft, TopoDS_Shape& re
                 all_tags.begin() + std::distance(shps.begin(), jt)};
             
 			for (size_t i = 0; i < 2; ++i) {
-                TopTools_IndexedDataMapOfShapeListOfShape ancestors;
+                NCollection_IndexedDataMap<TopoDS_Shape, NCollection_List<TopoDS_Shape>, TopTools_ShapeMapHasher> ancestors;
 				const auto& wire = wp[i];
                 auto& result = profile_points[i];
 
@@ -328,9 +328,9 @@ bool OpenCascadeKernel::convert(const taxonomy::loft::ptr loft, TopoDS_Shape& re
                         break;
                     }
 
-                    const TopTools_ListOfShape& incidentEdges = ancestors.FindFromKey(curr);
+                    const NCollection_List<TopoDS_Shape>& incidentEdges = ancestors.FindFromKey(curr);
 
-                    for (TopTools_ListIteratorOfListOfShape it(incidentEdges); it.More(); it.Next()) {
+                    for (NCollection_List<TopoDS_Shape>::Iterator it(incidentEdges); it.More(); it.Next()) {
                         const TopoDS_Edge& e = TopoDS::Edge(it.Value());
 						
 						TopoDS_Vertex ev0, ev1;

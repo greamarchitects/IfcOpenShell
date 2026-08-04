@@ -59,7 +59,6 @@
 %}
 %template(DoubleArray3) std::array<double, 3>;
 
-%ignore IfcGeom::NumberNativeDouble;
 %ignore ifcopenshell::geometry::Converter;
 
 // Not relevant for python: new_IfcBaseClass() calls instantiate()
@@ -164,9 +163,18 @@
 %ignore MaxOffset;
 %ignore MaxOffsetDeviation;
 %ignore ApplyOffset;
+%ignore SvgRidgeAngleMinDegrees;
+%ignore SvgValleyAngleMinDegrees;
+%ignore SvgEmitFlushEdges;
+%ignore SvgUseEdgeClassification;
+%ignore SvgRenderCreaseEdges;
+%ignore SvgRenderSharpEdges;
 
 %ignore XmlSerializerFactory;
 %ignore JsonSerializerFactory;
+
+%ignore filetype;
+%ignore guess_file_type;
 
 // Triangulated representation helper struct
 %ignore EdgeKey;

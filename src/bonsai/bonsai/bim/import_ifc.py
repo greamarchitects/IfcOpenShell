@@ -133,10 +133,6 @@ class MaterialCreator:
                 if shape_has_openings and coords.is_a("IfcIndexedTextureMap"):
                     continue
                 tool.Loader.load_indexed_map(coords, self.mesh)
-            elif tool.Style.get_texture_style(material):
-                # No explicit coordinate mapping (e.g. IFC2X3 has no IsMappedBy,
-                # and IFC4 COORD uses generated UVs). Bake XY→UV as fallback.
-                tool.Loader.load_generated_uv_map(self.mesh)
 
     def assign_material_slots_to_faces(self) -> None:
         if not self.mesh["ios_materials"]:
@@ -223,6 +219,7 @@ class IfcImporter:
         self.elements: set[ifcopenshell.entity_instance] = set()
         self.annotations: set[ifcopenshell.entity_instance] = set()
         self.gross_elements: set[ifcopenshell.entity_instance] = set()
+        self.broken_arrays: set[ifcopenshell.entity_instance] = set()
         self.element_types: set[ifcopenshell.entity_instance] = set()
         self.spatial_elements: set[ifcopenshell.entity_instance] = set()
         self.meshes: dict[str, OBJECT_DATA_TYPE] = {}
@@ -979,8 +976,13 @@ class IfcImporter:
                     if unit.Name == "METRE":
                         if not unit.Prefix:
                             bpy.context.scene.unit_settings.length_unit = "METERS"
-                        else:
+                        elif f"{unit.Prefix}METERS" in ("KILOMETERS", "CENTIMETERS", "MILLIMETERS", "MICROMETERS"):
                             bpy.context.scene.unit_settings.length_unit = f"{unit.Prefix}METERS"
+                        else:
+                            # Blender's length_unit enum has no entry for other
+                            # SI prefixes (e.g. DECIMETERS), so fall back to
+                            # adaptive display instead of failing to open.
+                            bpy.context.scene.unit_settings.length_unit = "ADAPTIVE"
                 else:
                     bpy.context.scene.unit_settings.system = "IMPERIAL"
                     name = unit.Name.lower()
@@ -1097,12 +1099,14 @@ class IfcImporter:
         vertices = [[v[i], v[i + 1], v[i + 2], 1] for i in range(0, len(v), 3)]
         edges = [[e[i], e[i + 1]] for i in range(0, len(e), 2)]
         v2 = None
+        polyline = None
         for edge in edges:
             v1 = vertices[edge[0]]
             if v1 != v2:
                 polyline = curve.splines.new("POLY")
                 polyline.points[-1].co = mathutils.Vector(v1)
             v2 = vertices[edge[1]]
+            assert polyline is not None
             polyline.points.add(1)
             polyline.points[-1].co = mathutils.Vector(v2)
         edges_item_ids = ifcopenshell.util.shape.get_edges_representation_item_ids(geometry).tolist()
@@ -1219,8 +1223,18 @@ class IfcImporter:
                         if element not in elements_to_import:
                             continue
                     for i in range(len(data)):
-                        tool.Blender.Modifier.Array.set_children_lock_state(element, i, True)
-                        tool.Blender.Modifier.Array.constrain_children_to_parent(element)
+                        tool.Array.set_children_lock_state(element, i, True)
+                    tool.Array.constrain_children_to_parent(element)
+                    for layer in data:
+                        for child_guid in layer.get("children", ()):
+                            try:
+                                self.file.by_guid(child_guid)
+                            except RuntimeError:
+                                print(
+                                    f"setup_arrays: array parent {element.GlobalId} references missing "
+                                    f"child GUID {child_guid!r}."
+                                )
+                                self.broken_arrays.add(element)
 
     def update_linked_aggregates(self):
         # TODO Remove this after a while. See commit 17d6b8a

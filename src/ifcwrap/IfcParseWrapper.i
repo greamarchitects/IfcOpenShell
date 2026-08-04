@@ -80,6 +80,7 @@ private:
 %rename("file") IfcFile;
 %rename("add") addEntity;
 %rename("remove") removeEntity;
+%rename("logger") Logger;
 
 class attribute_value_derived {};
 %{
@@ -116,8 +117,49 @@ PyObject* get_feature(const std::string& x) {
 
 %{
 
+#include <fstream>
+#include <random>
+
 static const std::string& helper_fn_declaration_get_name(const IfcParse::declaration* decl) {
 	return decl->name();
+}
+
+// Atomic IFC/STEP write (issue #4797): serialize to a temporary file next to
+// the destination, then atomically rename it onto the destination. If the
+// process is interrupted mid-write, the destination is never truncated or
+// left with dangling STEP references; at most a stray temp file remains, which
+// the caller can safely ignore. Keeping the temp in the same directory means
+// the rename stays on a single filesystem and is therefore atomic. The temp
+// path never leaks into the FILE_NAME header, which is derived from the model
+// header, not the output path.
+template <typename T>
+static void helper_fn_atomic_write(T& file_obj, const std::string& fn) {
+	std::random_device rd;
+	const std::string temp_fn = fn + "." + std::to_string(rd()) + ".tmp";
+	{
+		// Same open mode as a plain write so the bytes are identical.
+		std::ofstream f(IfcUtil::path::from_utf8(temp_fn).c_str());
+		if (!f.good()) {
+			// The temp file could not be created (e.g. directory not
+			// writable). Nothing was touched; report as a normal write error.
+			throw std::runtime_error("Failed to write to path: '" + fn + "', check folder and file permissions.");
+		}
+		f << file_obj;
+		f.flush();
+		if (!f.good()) {
+			// Serialization failed (e.g. disk full). Clean up the partial temp
+			// and abort. The existing destination is left intact.
+			f.close();
+			IfcUtil::path::delete_file(temp_fn);
+			throw std::runtime_error("Failed to write to path: '" + fn + "', the file may be incomplete.");
+		}
+		// The ofstream destructor at the end of this scope closes the stream.
+		// On Windows the file must be closed before it can be renamed.
+	}
+	if (!IfcUtil::path::atomic_rename_file(temp_fn, fn)) {
+		IfcUtil::path::delete_file(temp_fn);
+		throw std::runtime_error("Failed to write to path: '" + fn + "', could not replace the existing file.");
+	}
 }
 
 static IfcUtil::ArgumentType helper_fn_attribute_type(const IfcUtil::IfcBaseClass* inst, unsigned i) {
@@ -218,11 +260,10 @@ private:
 	}
 
 	void write(const std::string& fn) {
-		std::ofstream f(IfcUtil::path::from_utf8(fn).c_str());
-		if (!f.good()) {
-			throw std::runtime_error("Failed to write to path: '" + fn + "', check folder and file permissions.");
-		}
-		f << (*$self);
+		// Atomic write: serialize to a temp file next to the target, then
+		// atomically rename it into place, so an interrupted write can never
+		// corrupt the destination (issue #4797).
+		helper_fn_atomic_write(*$self, fn);
 	}
 
 	std::string to_string() {
@@ -702,6 +743,7 @@ private:
 %include "../ifcparse/IfcBaseClass.h"
 %include "../ifcparse/IfcSchema.h"
 %include "../serializers/RocksDbSerializer.h"
+%include "../ifcparse/IfcLogger.h"
 
 // The IfcFile* returned by open() is to be freed by SWIG/Python
 %newobject open;
@@ -710,10 +752,10 @@ private:
 %newobject stream_from_string;
 
 %inline %{
-	IfcParse::IfcFile* open(const std::string& fn, bool readonly=false) {
+	IfcParse::IfcFile* open(const std::string& fn, bool readonly=false, Logger* logger=nullptr) {
 		IfcParse::IfcFile* f;
 		Py_BEGIN_ALLOW_THREADS;
-		f = new IfcParse::IfcFile(fn, IfcParse::FT_AUTODETECT, readonly);
+		f = new IfcParse::IfcFile(fn, IfcParse::FT_AUTODETECT, readonly, logger_or_root(logger));
 		Py_END_ALLOW_THREADS;
 		return f;
 	}
@@ -878,7 +920,7 @@ private:
 	static std::stringstream ifcopenshell_log_stream;
 %}
 %init %{
-	Logger::SetOutput(0, &ifcopenshell_log_stream);
+	Logger::Root().SetOutput(0, &ifcopenshell_log_stream);
 %}
 %inline %{
 	std::string get_log() {
@@ -887,20 +929,20 @@ private:
 		return log;
 	}
 	void turn_on_detailed_logging() {
-		Logger::SetOutput(&std::cout, &std::cout);
-		Logger::Verbosity(Logger::LOG_DEBUG);
+		Logger::Root().SetOutput(&std::cout, &std::cout);
+		Logger::Root().Verbosity(Logger::LOG_DEBUG);
 	}
 	void turn_off_detailed_logging() {
-		Logger::SetOutput(0, &ifcopenshell_log_stream);
-		Logger::Verbosity(Logger::LOG_WARNING);
+		Logger::Root().SetOutput(0, &ifcopenshell_log_stream);
+		Logger::Root().Verbosity(Logger::LOG_WARNING);
 	}
 	void set_log_format_json() {
 		ifcopenshell_log_stream.str("");
-		Logger::OutputFormat(Logger::FMT_JSON);
+		Logger::Root().OutputFormat(Logger::FMT_JSON);
 	}
 	void set_log_format_text() {
 		ifcopenshell_log_stream.str("");
-		Logger::OutputFormat(Logger::FMT_PLAIN);
+		Logger::Root().OutputFormat(Logger::FMT_PLAIN);
 	}
 %}
 
@@ -1221,4 +1263,31 @@ private:
 		return d;
 	}
 }
-	
+
+%extend Logger {
+	%pythoncode %{
+		def __iter__(self):
+			return iter(self.log_messages())
+	%}
+}
+
+%extend log_message {
+	std::string severity_string() const {
+		static const char* const severity_strings[] = {"PERF", "DEBUG", "NOTICE", "WARNING", "ERROR"};
+		return severity_strings[(int)$self->severity];
+	}
+	%pythoncode %{
+		severity_string = property(severity_string)
+		def to_dict(self):
+			keys = ("timestamp", "severity", "code", "message", "instance", "product")
+			return dict(zip(keys, self.to_tuple()))
+		def to_tuple(self):
+			return self.timestamp, self.severity_string, self.code, self.message, self.instance, self.product
+		def __eq__(self, other):
+			return type(self) == type(other) and self.to_tuple() == other.to_tuple()
+		def __hash__(self):
+			return hash(self.to_tuple())
+		def __repr__(self):
+			return "<log_message '[%s] [%s] %s'>" % (self.severity_string, self.code, self.message)
+	%}
+}

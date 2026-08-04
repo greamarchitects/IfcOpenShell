@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING
 
 import bpy
 import ifcopenshell.api.attribute
+import ifcopenshell.api.material
 import ifcopenshell.api.type
 import ifcopenshell.util.element
 import ifcopenshell.util.representation
@@ -65,10 +66,28 @@ class AssignType(bpy.types.Operator, tool.Ifc.Operator):
             if active_drawing:
                 active_target_view = tool.Drawing.get_drawing_target_view(active_drawing)
 
+        compatible: list[tuple[bpy.types.Object, ifcopenshell.entity_instance]] = []
+        skipped_classes: set[str] = set()
         for obj in related_objects:
             element = tool.Ifc.get_entity(obj)
             if not element or not element.is_a("IfcObject"):
                 continue
+            if not tool.Type.is_relating_type_compatible(element, relating_type):
+                skipped_classes.add(element.is_a())
+                continue
+            compatible.append((obj, element))
+
+        if skipped_classes:
+            self.report(
+                {"WARNING"},
+                f"Skipped {', '.join(sorted(skipped_classes))}: not a valid occurrence for " f"{relating_type.is_a()}.",
+            )
+
+        if not compatible:
+            self.report({"ERROR"}, f"No selected object can be typed by {relating_type.is_a()}.")
+            return {"CANCELLED"}
+
+        for obj, element in compatible:
             core.assign_type(tool.Ifc, tool.Model, tool.Type, element=element, type=relating_type)
 
             # Switch to the drawing's target view if available
@@ -97,51 +116,94 @@ class UnassignType(bpy.types.Operator, tool.Ifc.Operator):
     if TYPE_CHECKING:
         related_object: str
 
-    def _execute(self, context):
+    @staticmethod
+    def _reattach_styles(file: ifcopenshell.file, copied_entities: dict[int, ifcopenshell.entity_instance]) -> None:
+        """copy_deep only follows forward references, so IfcStyledItem (an inverse,
+        ``StyledByItem``) is not carried onto the copied geometry. Re-create a
+        styled item on each copy that points at the same presentation styles as
+        the original, so the unmapped occurrence keeps its appearance."""
+        for original_id, copied in copied_entities.items():
+            original = file.by_id(original_id)
+            for styled_item in getattr(original, "StyledByItem", None) or []:
+                file.create_entity(
+                    "IfcStyledItem",
+                    Item=copied,
+                    Styles=styled_item.Styles,
+                    Name=styled_item.Name,
+                )
+
+    @staticmethod
+    def unassign_and_unmap(obj: bpy.types.Object) -> None:
+        """Unassign the type from ``obj`` and bake a private copy of any mapped
+        representation onto it, so the occurrence keeps its geometry, styles, and
+        material once the type (the source of all three) is gone."""
+
         def exclude_callback(attribute):
             return attribute.is_a("IfcProfileDef") and attribute.ProfileName
 
-        self.file = tool.Ifc.get()
+        file = tool.Ifc.get()
+        element = tool.Ifc.get_entity(obj)
+        if not element or not element.is_a("IfcObject"):
+            return
+
+        # Capture the material inherited from the type before we sever the link,
+        # but only if the occurrence has no material of its own to override it.
+        own_material = ifcopenshell.util.element.get_material(element, should_inherit=False)
+        inherited_material = ifcopenshell.util.element.get_material(element, should_inherit=True)
+
+        ifcopenshell.api.type.unassign_type(file, related_objects=[element])
+
+        if element.Representation:
+            new_active_representation = None
+            active_representation = tool.Geometry.get_active_representation(obj)
+            active_context = active_representation.ContextOfItems
+            representations = []
+            for representation in element.Representation.Representations:
+                resolved_representation = ifcopenshell.util.representation.resolve_representation(representation)
+                if representation == resolved_representation:
+                    representations.append(representation)
+                else:
+                    # We must unmap representations, carrying over their styles.
+                    copied_entities: dict[int, ifcopenshell.entity_instance] = {}
+                    copied_representation = ifcopenshell.util.element.copy_deep(
+                        file,
+                        resolved_representation,
+                        exclude=["IfcGeometricRepresentationContext"],
+                        exclude_callback=exclude_callback,
+                        copied_entities=copied_entities,
+                    )
+                    UnassignType._reattach_styles(file, copied_entities)
+                    representations.append(copied_representation)
+                    if representation.ContextOfItems == active_context:
+                        new_active_representation = copied_representation
+            element.Representation.Representations = representations
+
+            if new_active_representation:
+                bonsai.core.geometry.switch_representation(
+                    tool.Ifc,
+                    tool.Geometry,
+                    obj=obj,
+                    representation=new_active_representation,
+                )
+
+        # Bake the inherited material down onto the occurrence now that its type
+        # link (and, in the delete-type case, the type itself) is gone. Usages are
+        # occurrence-specific and never inherited, so they need no handling here.
+        if inherited_material is not None and own_material is None:
+            material_type = inherited_material.is_a()
+            if material_type not in ("IfcMaterialLayerSetUsage", "IfcMaterialProfileSetUsage"):
+                ifcopenshell.api.material.assign_material(
+                    file, products=[element], type=material_type, material=inherited_material
+                )
+
+    def _execute(self, context):
         if self.related_object:
             related_objects = [bpy.data.objects[self.related_object]]
         else:
             related_objects = tool.Blender.get_selected_objects()
 
         for obj in related_objects:
-            element = tool.Ifc.get_entity(obj)
-            if not element or not element.is_a("IfcObject"):
-                continue
-            ifcopenshell.api.type.unassign_type(self.file, related_objects=[element])
-
-            if element.Representation:
-                new_active_representation = None
-                active_representation = tool.Geometry.get_active_representation(obj)
-                active_context = active_representation.ContextOfItems
-                representations = []
-                for representation in element.Representation.Representations:
-                    resolved_representation = ifcopenshell.util.representation.resolve_representation(representation)
-                    if representation == resolved_representation:
-                        representations.append(representation)
-                    else:
-                        # We must unmap representations.
-                        copied_representation = ifcopenshell.util.element.copy_deep(
-                            tool.Ifc.get(),
-                            resolved_representation,
-                            exclude=["IfcGeometricRepresentationContext"],
-                            exclude_callback=exclude_callback,
-                        )
-                        representations.append(copied_representation)
-                        if representation.ContextOfItems == active_context:
-                            new_active_representation = copied_representation
-                element.Representation.Representations = representations
-
-                if new_active_representation:
-                    bonsai.core.geometry.switch_representation(
-                        tool.Ifc,
-                        tool.Geometry,
-                        obj=obj,
-                        representation=new_active_representation,
-                    )
+            self.unassign_and_unmap(obj)
         return {"FINISHED"}
 
 
@@ -287,14 +349,82 @@ class SelectTypeObjects(bpy.types.Operator):
 
 class RemoveType(bpy.types.Operator, tool.Ifc.Operator):
     bl_idname = "bim.remove_type"
-    bl_label = "Remove Type"
+    bl_label = "Delete Type"
+    bl_description = (
+        "Delete this type. Its occurrences are kept but become untyped.\n\n"
+        "SHIFT+Click to also delete every occurrence of this type in the project"
+    )
     bl_options = {"REGISTER", "UNDO"}
     element: bpy.props.IntProperty()
+    also_delete_instances: bpy.props.BoolProperty(default=False, options={"SKIP_SAVE"})
+
+    if TYPE_CHECKING:
+        element: int
+        also_delete_instances: bool
+
+    @staticmethod
+    def _detach_type_material_set(element: ifcopenshell.entity_instance) -> None:
+        """Cascade-free removal of the type's IfcMaterialLayerSet / IfcMaterialProfileSet
+        association, called just before the type is deleted.
+
+        ``remove_product`` would otherwise route the type's material association
+        through ``unassign_material``, which deletes *every* usage of that set
+        across the model (documented behaviour, with an upstream TODO calling it
+        too aggressive) — stripping the material off the very occurrences we are
+        trying to keep. By unhooking the type<->set link by hand here, the type
+        has no material at delete time, so that cascade never fires and the set
+        plus the occurrences' usages survive intact."""
+        file = tool.Ifc.get()
+        material = ifcopenshell.util.element.get_material(element, should_inherit=False)
+        if not material or material.is_a() not in ("IfcMaterialLayerSet", "IfcMaterialProfileSet"):
+            return
+        for rel in list(getattr(element, "HasAssociations", None) or []):
+            if not (rel.is_a("IfcRelAssociatesMaterial") and rel.RelatingMaterial == material):
+                continue
+            remaining = [o for o in rel.RelatedObjects if o != element]
+            if remaining:
+                rel.RelatedObjects = remaining
+            else:
+                history = rel.OwnerHistory
+                file.remove(rel)
+                if history:
+                    ifcopenshell.util.element.remove_deep2(file, history)
+
+    def invoke(self, context, event):
+        self.also_delete_instances = event.shift
+        if self.also_delete_instances:
+            element = tool.Ifc.get().by_id(self.element)
+            count = len(ifcopenshell.util.element.get_types(element))
+            return context.window_manager.invoke_confirm(
+                self,
+                event,
+                title="Delete Type and Occurrences",
+                message=f"This will delete the type and all {count} of its occurrences.",
+                confirm_text="Delete",
+            )
+        return self.execute(context)
 
     def _execute(self, context):
         element = tool.Ifc.get().by_id(self.element)
+        occurrences = ifcopenshell.util.element.get_types(element)
+        if self.also_delete_instances:
+            for occurrence in occurrences:
+                occurrence_obj = tool.Ifc.get_object(occurrence)
+                if occurrence_obj:
+                    tool.Geometry.delete_ifc_object(occurrence_obj)
+        else:
+            # Keep the occurrences: bake their (previously type-mapped) geometry,
+            # styles, and inherited material onto each one so nothing is lost when
+            # the type is deleted...
+            for occurrence in occurrences:
+                occ_obj = tool.Ifc.get_object(occurrence)
+                if occ_obj:
+                    UnassignType.unassign_and_unmap(occ_obj)
+            # ...and keep any layer/profile-set material usages alive across the deletion.
+            self._detach_type_material_set(element)
         obj = tool.Ifc.get_object(element)
-        tool.Geometry.delete_ifc_object(obj)
+        if obj:
+            tool.Geometry.delete_ifc_object(obj)
 
 
 class RenameType(bpy.types.Operator, tool.Ifc.Operator):
@@ -376,12 +506,22 @@ class DuplicateType(bpy.types.Operator, tool.Ifc.Operator):
         if self.assign_selected_objects:
             selected_objects = tool.Blender.get_selected_objects()
             prefs = tool.Blender.get_addon_preferences()
+            skipped_classes: set[str] = set()
             for selected_obj in selected_objects:
                 selected_element = tool.Ifc.get_entity(selected_obj)
-                if selected_element and selected_element.is_a("IfcObject"):
-                    core.assign_type(tool.Ifc, tool.Model, tool.Type, element=selected_element, type=new)
-                    if prefs.occurrence_name_style == "TYPE":
-                        selected_obj.name = tool.Model.generate_occurrence_name(new, selected_element.is_a())
+                if not selected_element or not selected_element.is_a("IfcObject"):
+                    continue
+                if not tool.Type.is_relating_type_compatible(selected_element, new):
+                    skipped_classes.add(selected_element.is_a())
+                    continue
+                core.assign_type(tool.Ifc, tool.Model, tool.Type, element=selected_element, type=new)
+                if prefs.occurrence_name_style == "TYPE":
+                    selected_obj.name = tool.Model.generate_occurrence_name(new, selected_element.is_a())
+            if skipped_classes:
+                self.report(
+                    {"WARNING"},
+                    f"Skipped {', '.join(sorted(skipped_classes))}: not a valid occurrence for " f"{new.is_a()}.",
+                )
 
         if obj in context.selectable_objects:
             tool.Blender.select_and_activate_single_object(context, new_obj)

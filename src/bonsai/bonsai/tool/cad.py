@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import math
 import sys
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Union
 
 import bmesh
@@ -45,6 +46,13 @@ if TYPE_CHECKING:
 
 
 VTX_PRECISION = 1.0e-5
+# Tolerances below are in Blender units (SI metres).
+# Looser than VTX_PRECISION because regen-time numeric drift exceeds CAD snap precision.
+WELD_TOLERANCE = 1.0e-4
+# How close a vertex must be to the cut plane to count as on it.
+BISECT_TOLERANCE = 1.0e-4
+# Strict weld for cleaning up exactly-coincident vertices.
+WELD_EPSILON = 1.0e-6
 
 
 class Cad:
@@ -170,6 +178,14 @@ class Cad:
         return (x + tolerance) > value > (x - tolerance)
 
     @classmethod
+    def is_multiple_of_pi(cls, value: float) -> bool:
+        """True when ``value`` is an integer multiple of π within tolerance —
+        the parallelism / anti-parallelism check rotation-difference logic
+        reaches for (segments aligned modulo a 180° flip)."""
+        n = round(value / math.pi)
+        return cls.is_x(abs(value - n * math.pi), 0)
+
+    @classmethod
     def normalise_angle(cls, angle: float) -> float:
         """Normalise an angle between -179 and 180"""
         angle = angle % 360
@@ -189,6 +205,237 @@ class Cad:
         < return the intersection point or None
         """
         return geometry.intersect_line_plane(v1, v2, plane_co, plane_no)
+
+    @classmethod
+    def obb_world_clip_planes(
+        cls,
+        center: Vector,
+        axes: tuple[Vector, Vector, Vector],
+        half_extents: Vector,
+    ) -> tuple[tuple[float, float, float, float], ...]:
+        """Return the 6 inward world clip planes of an oriented bounding box.
+
+        Each plane is a 4-tuple ``(a, b, c, d)`` for the equation
+        ``a*x + b*y + c*z + d``; a point is KEPT when the value is ``>= 0``
+        for every plane, matching ``RegionView3D.clip_planes`` semantics.
+        Return order is ``(+x, -x, +y, -y, +z, -z)`` where ``+x`` is the face
+        on the positive side of ``axes[0]``. ``axes`` are assumed orthonormal.
+        """
+        cx, cy, cz = center.x, center.y, center.z
+        planes: list[tuple[float, float, float, float]] = []
+        for i in range(3):
+            ux, uy, uz = axes[i].x, axes[i].y, axes[i].z
+            h = float(half_extents[i])
+            px, py, pz = cx + h * ux, cy + h * uy, cz + h * uz
+            nx, ny, nz = -ux, -uy, -uz
+            planes.append((nx, ny, nz, -(nx * px + ny * py + nz * pz)))
+            px, py, pz = cx - h * ux, cy - h * uy, cz - h * uz
+            planes.append((ux, uy, uz, -(ux * px + uy * py + uz * pz)))
+        return tuple(planes)
+
+    @classmethod
+    def obb_clip_planes_from_matrix(
+        cls,
+        matrix_world: Matrix,
+        expand: float = 0.0,
+        expand_rel: float = 0.0,
+    ) -> tuple[tuple[float, float, float, float], ...]:
+        """Return the 6 inward world clip planes for the unit cube under ``matrix_world``.
+
+        The implicit box is ``[-1, +1]^3`` in object-local space, so the
+        host's ``matrix_world`` translation is the world centre, its
+        rotation orients the box axes, and each column's magnitude is the
+        world half-extent along that local axis. ``expand`` (absolute
+        world units) and ``expand_rel`` (fraction of each axis's
+        half-extent) both add an outward margin — callers that visualise
+        the box with overlapping geometry (e.g. an empty CUBE display
+        sharing edges with the clip planes) pass non-zero values so the
+        box's own wireframe sits safely INSIDE the clip volume. Use the
+        relative form when the box is rendered at varying scales, since
+        the depth-buffer precision needed to keep an edge unclipped grows
+        with world-coordinate magnitude.
+        """
+        world_center = matrix_world.col[3].xyz
+        linear = matrix_world.to_3x3()
+        world_axes = []
+        world_half_list = []
+        for i in range(3):
+            v = linear.col[i].copy()
+            length = v.length
+            if length > 0.0:
+                world_axes.append(v / length)
+            else:
+                world_axes.append(Vector((0.0, 0.0, 0.0)))
+            world_half_list.append(length + expand + length * expand_rel)
+        return cls.obb_world_clip_planes(
+            world_center,
+            (world_axes[0], world_axes[1], world_axes[2]),
+            Vector(world_half_list),
+        )
+
+    @classmethod
+    def point_is_inside_clip_planes(
+        cls,
+        planes: tuple[tuple[float, float, float, float], ...],
+        point: Vector,
+        eps: float = 1e-6,
+    ) -> bool:
+        """True iff ``point`` is on the kept side of every plane (inclusive)."""
+        x, y, z = point.x, point.y, point.z
+        for a, b, c, d in planes:
+            if a * x + b * y + c * z + d < -eps:
+                return False
+        return True
+
+    @classmethod
+    def newell_normal(cls, points: Sequence) -> Vector:
+        """Newell's-method normal for a (possibly non-planar) 3D polygon ring.
+
+        Robust for thin / near-degenerate rings where a two-edge cross
+        product would be unstable.
+        """
+        nx = ny = nz = 0.0
+        n = len(points)
+        for i in range(n):
+            cur = points[i]
+            nxt = points[(i + 1) % n]
+            nx += (cur[1] - nxt[1]) * (cur[2] + nxt[2])
+            ny += (cur[2] - nxt[2]) * (cur[0] + nxt[0])
+            nz += (cur[0] - nxt[0]) * (cur[1] + nxt[1])
+        return Vector((nx, ny, nz))
+
+    @classmethod
+    def plane_basis(cls, points: Sequence) -> tuple[Vector, Vector]:
+        """Return an orthonormal ``(u, v)`` basis for the ring's best-fit plane."""
+        normal = cls.newell_normal(points)
+        if normal.length < 1e-12:
+            normal = Vector((0.0, 0.0, 1.0))
+        normal = normal.normalized()
+        ref = Vector((1.0, 0.0, 0.0))
+        if abs(normal.x) > 0.9:
+            ref = Vector((0.0, 1.0, 0.0))
+        u = normal.cross(ref)
+        if u.length < 1e-12:
+            ref = Vector((0.0, 0.0, 1.0))
+            u = normal.cross(ref)
+        u = u.normalized()
+        v = normal.cross(u).normalized()
+        return u, v
+
+    @classmethod
+    def tessellate_ring_planar(cls, polyline_list: list[list]) -> list[tuple[int, int, int]]:
+        """Triangulate ``[outer, *inners]`` 3D coord rings in their own plane.
+
+        Projects every ring onto the outer ring's best-fit plane and
+        returns ``(i, j, k)`` index triples into the flat
+        ``outer + inners[0] + inners[1] + ...`` vertex list. Falls
+        back to a shapely constrained Delaunay triangulation when
+        ``mathutils.geometry.tessellate_polygon`` silently leaves ring
+        vertices unused (its known failure mode on complex concave
+        polygons-with-holes).
+        """
+        from mathutils.geometry import tessellate_polygon
+
+        if not polyline_list or not polyline_list[0]:
+            return []
+        outer = polyline_list[0]
+        u, v = cls.plane_basis(outer)
+        origin = Vector(outer[0])
+
+        def _project_xy(ring):
+            return [((Vector(co) - origin).dot(u), (Vector(co) - origin).dot(v)) for co in ring]
+
+        projected_xy = [_project_xy(ring) for ring in polyline_list]
+        projected = [[Vector((x, y, 0.0)) for x, y in ring] for ring in projected_xy]
+        triangles = tessellate_polygon(projected)
+
+        n_total = sum(len(r) for r in projected_xy)
+        used = {i for tri in triangles for i in tri}
+        if triangles and len(used) >= n_total:
+            return triangles
+
+        fallback = cls._tessellate_via_shapely(projected_xy)
+        return fallback if fallback else triangles
+
+    @classmethod
+    def _tessellate_via_shapely(cls, projected_xy: list[list[tuple[float, float]]]) -> list[tuple[int, int, int]]:
+        """Constrained-Delaunay fallback for :meth:`tessellate_ring_planar`.
+
+        Honours the polygon's boundary AND holes. Returns ``[]`` when
+        shapely is unavailable or the polygon can't be cleaned via
+        ``buffer(0)``.
+        """
+        try:
+            from shapely.geometry import Polygon
+        except Exception:
+            return []
+        outer = projected_xy[0]
+        inners = projected_xy[1:]
+        if len(outer) < 3:
+            return []
+        try:
+            poly = Polygon(outer, inners)
+            poly = poly if poly.is_valid else poly.buffer(0)
+            if poly.is_empty:
+                return []
+        except Exception:
+            return []
+
+        flat = list(outer)
+        for r in inners:
+            flat.extend(r)
+
+        def _key(x, y):
+            return (round(x, 6), round(y, 6))
+
+        index_of: dict[tuple[float, float], int] = {}
+        for idx, (x, y) in enumerate(flat):
+            index_of.setdefault(_key(x, y), idx)
+
+        try:
+            from shapely import constrained_delaunay_triangles
+
+            res = constrained_delaunay_triangles(poly)
+            tri_geoms = list(getattr(res, "geoms", []) or [])
+        except Exception:
+            try:
+                from shapely.ops import triangulate
+
+                tri_geoms = [t for t in triangulate(poly) if poly.contains(t.representative_point())]
+            except Exception:
+                return []
+
+        out: list[tuple[int, int, int]] = []
+        for t in tri_geoms:
+            coords = list(t.exterior.coords)[:-1]
+            if len(coords) != 3:
+                continue
+            idxs = [index_of.get(_key(x, y)) for x, y in coords]
+            if any(i is None for i in idxs):
+                continue
+            out.append(tuple(idxs))
+        return out
+
+    @classmethod
+    def corners_might_cross_clip_planes(
+        cls,
+        planes: tuple[tuple[float, float, float, float], ...],
+        corners: Sequence[Vector],
+    ) -> bool:
+        """Conservative reject test: True if ``corners`` might cross the clip volume.
+
+        Returns False only when at least one plane has ALL corners on its
+        rejected side — meaning the convex hull of ``corners`` is fully
+        outside the clip volume and a per-mesh bisect can be skipped.
+        Returns True otherwise (possibly with false positives — never
+        false negatives), so callers always cap any object that actually
+        crosses the box. ``corners`` is typically the 8 world-space corners
+        of an object's bound box.
+        """
+        for a, b, c, d in planes:
+            if all(a * v.x + b * v.y + c * v.z + d < 0.0 for v in corners):
+                return False
+        return True
 
     def intersect_edge_plane_v2(v1, v2, plane_co, plane_no, eps=1e-9):
         """
@@ -734,6 +981,7 @@ class Cad:
                         has_found_connected_edge = True
             loops.append(loop)
 
+        new_verts = None
         for loop in loops:
             all_verts = {v.index for e in loop for v in e.verts}
             possible_v1s = []
@@ -837,6 +1085,7 @@ class Cad:
                     break
 
                 v1 = v2
+        assert new_verts is not None
 
         return new_verts
 
@@ -996,3 +1245,106 @@ class Cad:
             y = height_half + height_half * (prj[1] / w)
             return Vector((float(x), float(y)))
         return default
+
+    @classmethod
+    def sweep_disk_along_polyline(
+        cls,
+        bm: bmesh.types.BMesh,
+        points: Sequence[Vector],
+        radius: float,
+        arc_indices: Sequence[int] = (),
+        profile_segments: int = 8,
+    ) -> None:
+        """Append a tube of ``radius`` along the polyline ``points`` to ``bm``.
+
+        Viewport-quality approximation of an IFC ``IfcSweptDiskSolid``: each
+        consecutive pair of points becomes a capped cylinder. The cylinders
+        overlap at joints rather than being mitered — the visual artifact is
+        negligible at typical handrail radii (~25mm) and acceptable for
+        live parametric-edit preview.
+
+        ``arc_indices`` is accepted for API symmetry with the IFC builder
+        (which receives the same data structure), but is currently unused —
+        arcs are visualised as polyline kinks. Tessellating each arc with a
+        Lagrange or circular interpolation would smooth the joints; deferred
+        until profile fidelity becomes a concern.
+
+        :param bm: target bmesh, mutated in place.
+        :param points: polyline vertices.
+        :param radius: tube radius (project units).
+        :param arc_indices: indices of arc midpoints (currently ignored).
+        :param profile_segments: sides on each cylinder cross-section.
+        """
+        del arc_indices  # accepted for forward compatibility; see docstring
+        if len(points) < 2:
+            return
+        for p0, p1 in zip(points, points[1:]):
+            cls._add_capped_cylinder(bm, Vector(p0), Vector(p1), radius, profile_segments)
+
+    @classmethod
+    def add_disk_extrusion(
+        cls,
+        bm: bmesh.types.BMesh,
+        position: Vector,
+        radius: float,
+        depth: float,
+        axis_rotation_z: float,
+        profile_segments: int = 12,
+    ) -> None:
+        """Append a flat cylinder (disk extrusion) to ``bm``.
+
+        A disk of ``radius`` extruded by ``depth`` along the +Y axis rotated
+        by ``axis_rotation_z`` radians around Z. ``position`` is the disk's
+        base, not its centre.
+
+        :param bm: target bmesh, mutated in place.
+        :param position: base of the extrusion in object-local coordinates.
+        :param radius: disk radius.
+        :param depth: extrusion depth along the (rotated) Y axis.
+        :param axis_rotation_z: rotation around Z applied to the +Y axis to
+            obtain the extrusion direction.
+        :param profile_segments: sides on the disk's edge.
+        """
+        # The +Y axis rotated by axis_rotation_z around Z gives the extrusion
+        # direction: (-sin(θ), cos(θ), 0). The disk axis points along it.
+        axis = Vector((-math.sin(axis_rotation_z), math.cos(axis_rotation_z), 0.0))
+        end = position + axis * depth
+        cls._add_capped_cylinder(bm, position, end, radius, profile_segments)
+
+    @classmethod
+    def _add_capped_cylinder(
+        cls,
+        bm: bmesh.types.BMesh,
+        p0: Vector,
+        p1: Vector,
+        radius: float,
+        segments: int,
+    ) -> None:
+        """Append one capped cylinder of ``radius`` from ``p0`` to ``p1`` to ``bm``."""
+        direction = p1 - p0
+        length = direction.length
+        if length < 1e-9:
+            return
+        direction = direction / length
+
+        z_axis = Vector((0.0, 0.0, 1.0))
+        dot = direction.dot(z_axis)
+        if dot > 1.0 - 1e-6:
+            rotation = Matrix.Identity(4)
+        elif dot < -1.0 + 1e-6:
+            # Anti-parallel: rotate 180° around X so the cone flips bottom-to-top.
+            rotation = Matrix.Rotation(math.pi, 4, "X")
+        else:
+            rotation = z_axis.rotation_difference(direction).to_matrix().to_4x4()
+
+        matrix = Matrix.Translation((p0 + p1) * 0.5) @ rotation
+        bmesh.ops.create_cone(
+            bm,
+            cap_ends=True,
+            cap_tris=False,
+            segments=segments,
+            radius1=radius,
+            radius2=radius,
+            depth=length,
+            matrix=matrix,
+        )

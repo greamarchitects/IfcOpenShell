@@ -32,6 +32,7 @@ from typing import (
     NotRequired,
     Optional,
     TypedDict,
+    Union,
 )
 
 import bpy
@@ -333,6 +334,14 @@ class Project(bonsai.core.tool.Project):
                 if reference[1]:
                     m = np.fromstring(reference[1], sep=",", dtype=np.float64).reshape(4, 4)
                     link.has_transformation = not np.allclose(m, np.eye(4))
+                # The selector query used at link time is persisted only in the
+                # sidecar cache JSON; restore it so Reload/Load replay the filter.
+                json_filepath = Path(tool.Ifc.resolve_uri(filepath)).with_suffix(".ifc.cache.json")
+                if json_filepath.exists():
+                    try:
+                        link.query = json.loads(json_filepath.read_text()).get("query", "")
+                    except (OSError, json.JSONDecodeError):
+                        pass
 
     @classmethod
     def get_project_library_elements(
@@ -361,27 +370,34 @@ class Project(bonsai.core.tool.Project):
         props = cls.get_project_props()
         active_library_breadcrumb = props.get_active_library_breadcrumb()
         change_back = False
+        breadcrumb = None
         if active_library_breadcrumb:
             name = active_library_breadcrumb.name
             breadcrumb_type = active_library_breadcrumb.breadcrumb_type
             library_id = active_library_breadcrumb.library_id
+            breadcrumb = (name, breadcrumb_type, library_id)
             change_back = True
 
         bpy.ops.bim.rewind_library()
         if change_back:
+            assert breadcrumb
             bpy.ops.bim.change_library_element(
-                element_name=name,
-                breadcrumb_type=breadcrumb_type,
-                library_id=library_id,
+                element_name=breadcrumb[0],
+                breadcrumb_type=breadcrumb[1],
+                library_id=breadcrumb[2],
             )
 
     @classmethod
-    def get_parent_library(cls, project_library: ifcopenshell.entity_instance) -> ifcopenshell.entity_instance:
+    def get_parent_library(
+        cls, project_library: ifcopenshell.entity_instance
+    ) -> Union[ifcopenshell.entity_instance, None]:
+        """Return the IfcContext that declares or nests ``project_library``, or ``None``
+        if neither relationship is present."""
         if nests := project_library.Nests:
-            # IfcProjectLibrary.
             return nests[0].RelatingObject
-        # IfcProject.
-        return project_library.HasContext[0].RelatingContext
+        if has_context := project_library.HasContext:
+            return has_context[0].RelatingContext
+        return None
 
     @classmethod
     def get_project_hierarchy(cls, ifc_file: ifcopenshell.file) -> HiearchyDict:
@@ -401,6 +417,8 @@ class Project(bonsai.core.tool.Project):
             return hierarchy
         for project_library in ifc_file.by_type("IfcProjectLibrary"):
             parent_library = cls.get_parent_library(project_library)
+            if parent_library is None:
+                continue
             hierarchy[parent_library][project_library] = hierarchy[project_library]
         return hierarchy
 

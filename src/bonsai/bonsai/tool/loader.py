@@ -189,7 +189,7 @@ class Loader(bonsai.core.tool.Loader):
                 uv_mode = "Generated"
             elif coordinates.is_a("IfcTextureCoordinateGenerator") and coordinates.Mode == "COORD-EYE":
                 uv_mode = "Camera"
-        surface_texture["uv_mode"] = uv_mode or "Generated"
+        surface_texture["uv_mode"] = uv_mode or "UV"
         return surface_texture
 
     @classmethod
@@ -197,7 +197,6 @@ class Loader(bonsai.core.tool.Loader):
         cls, blender_material: bpy.types.Material, surface_style: ifcopenshell.entity_instance
     ) -> None:
         surface_style = cls.surface_style_to_dict(surface_style)
-        surface_style: dict[str, Any]
 
         cls.create_surface_style_shading(blender_material, surface_style)
 
@@ -315,7 +314,7 @@ class Loader(bonsai.core.tool.Loader):
                     image_url = str(image_url)
                     if is_relative and bpy.data.filepath:
                         image_url = bpy.path.relpath(image_url)
-                    return bpy.data.images.load(image_url)
+                    return bpy.data.images.load(image_url, check_existing=True)
 
                 elif texture["type"] == "IfcBlobTexture":
                     # https://blender.stackexchange.com/questions/173206/how-to-efficiently-convert-a-pil-image-to-bpy-types-image
@@ -472,12 +471,23 @@ class Loader(bonsai.core.tool.Loader):
                         print(f"{mode} Mode texture will be skipped.")
                     continue
 
-                if (image := get_image) is None:
+                if (image := get_image()) is None:
                     continue
 
-                # remove RGB node from `create_surface_style_rendering`
-                prev_node = bsdf.inputs[2].links[0].from_node
-                blender_material.node_tree.nodes.remove(prev_node)
+                # Replace whatever currently feeds the FLAT color input (RGB or previous texture chain).
+                for link in list(bsdf.inputs[2].links):
+                    prev_node = link.from_node
+                    blender_material.node_tree.links.remove(link)
+                    if prev_node.type == "TEX_IMAGE":
+                        # Remove linked texture coordinate node if it's no longer used.
+                        for vec_link in list(prev_node.inputs["Vector"].links):
+                            coord_node = vec_link.from_node
+                            blender_material.node_tree.links.remove(vec_link)
+                            if coord_node.type == "TEX_COORD" and not any(o.links for o in coord_node.outputs):
+                                blender_material.node_tree.nodes.remove(coord_node)
+                        blender_material.node_tree.nodes.remove(prev_node)
+                    elif prev_node.type == "RGB":
+                        blender_material.node_tree.nodes.remove(prev_node)
 
                 node = blender_material.node_tree.nodes.new(type="ShaderNodeTexImage")
                 node.location = bsdf.location - Vector((200, 250))
@@ -1077,18 +1087,21 @@ class Loader(bonsai.core.tool.Loader):
         bm = bmesh.new()
         bm.from_mesh(mesh)
         prev_co = None
-        if usage.LayerSetDirection == "AXIS2":
+        layer_set_direction = usage.LayerSetDirection
+        if layer_set_direction == "AXIS2":
             co = Vector((0.0, offset, 0.0))
             no = cls.get_extrusion_vector(element).normalized()
             no = no.cross(Vector([1.0, 0.0, 0.0]))
-        elif usage.LayerSetDirection == "AXIS3":
+        elif layer_set_direction == "AXIS3":
             co = Vector((0.0, 0.0, offset))
             no = cls.get_extrusion_vector(element).normalized()
             no = Vector([0.0, 0.0, 1.0])
-        elif usage.LayerSetDirection == "AXIS1":
+        elif layer_set_direction == "AXIS1":
             co = Vector((0.0, 0.0, offset))
             no = cls.get_extrusion_vector(element).normalized()
             no = Vector([1.0, 0.0, 0.0])
+        else:
+            assert False, layer_set_direction
         no *= sense_factor
         # Cache this
         body = ifcopenshell.util.representation.get_context(tool.Ifc.get(), "Model", "Body", "MODEL_VIEW")
@@ -1098,6 +1111,7 @@ class Loader(bonsai.core.tool.Loader):
             if style := tool.Ifc.get_entity(material):
                 styles[style] = i
         last_i = len(layer_set.MaterialLayers) - 1
+        bisect_geom = None
         for i, layer in enumerate(layer_set.MaterialLayers):
             if i != last_i:
                 prev_co = co.copy()
@@ -1111,6 +1125,7 @@ class Loader(bonsai.core.tool.Loader):
             if (material_index := styles.get(style, None)) is None:
                 material_index = len(mesh.materials)
                 mesh.materials.append(tool.Ifc.get_object(style))
+            assert bisect_geom is not None
             if i == last_i:
                 for face in bisect_geom["geom"]:
                     if isinstance(face, bmesh.types.BMFace):
@@ -1216,7 +1231,7 @@ class Loader(bonsai.core.tool.Loader):
     ) -> bool:
         items = [i["item"] for i in ifcopenshell.util.representation.resolve_items(representation)]
         if len(items) == 1 and items[0].is_a("IfcSweptDiskSolid"):
-            if tool.Blender.Modifier.is_railing(element):
+            if tool.Parametric.is_railing(element):
                 return False
             return True
         elif len(items) and (  # See #2508 why we accommodate for invalid IFCs here
@@ -1224,7 +1239,7 @@ class Loader(bonsai.core.tool.Loader):
             and len({i.is_a() for i in items}) == 1
             and len({i.Radius for i in items}) == 1
         ):
-            if tool.Blender.Modifier.is_railing(element):
+            if tool.Parametric.is_railing(element):
                 return False
             return True
         return False
@@ -1276,6 +1291,7 @@ class Loader(bonsai.core.tool.Loader):
             polyline.material_index = material_index
             return polyline
 
+        item = None
         for item_data, item_style in zip(rep_items, item_styles):
             item = item_data["item"]
 
@@ -1303,6 +1319,7 @@ class Loader(bonsai.core.tool.Loader):
                 polyline.points.add(1)
                 polyline.points[-1].co = native_data["matrix"] @ Vector(v2)
 
+        assert item is not None
         curve.bevel_depth = unit_scale * item.Radius
         thickness = None
         if (inner_radius := item.InnerRadius) and (thickness := max(item.Radius - inner_radius, 0)):

@@ -118,6 +118,19 @@ def update_shader_graph(self: Union["Texture", "BIMStylesProperties"], context: 
     tool.Loader.create_surface_style_with_textures(material, shading_data, textures_data)
 
 
+def _make_clear_null_updater(null_prop: str):
+    def _update(self: "BIMStylesProperties", context: bpy.types.Context) -> None:
+        self[null_prop] = False
+        update_shader_graph(self, context)
+
+    return _update
+
+
+update_diffuse_colour = _make_clear_null_updater("is_diffuse_colour_null")
+update_specular_colour = _make_clear_null_updater("is_specular_colour_null")
+update_specular_highlight_value = _make_clear_null_updater("is_specular_highlight_null")
+
+
 UV_MODES = [
     ("UV", "UV", _("Actual UV data presented on the geometry")),
     ("Generated", "Generated", _("Automatically-generated UV from the vertex positions of the mesh")),
@@ -172,6 +185,13 @@ class ColourRgb(PropertyGroup):
     # to fit blender.bim.helper.draw_attribute
     is_optional = False
     special_type = ""
+    data_type = ""
+    ifc_class = ""
+    use_explorer_ui = False
+
+    @property
+    def display_name(self):
+        return self.name
 
     def get_value_name(self, *args, **kwargs):
         return "color_value"
@@ -221,24 +241,29 @@ class BIMStylesProperties(PropertyGroup):
     transparency: bpy.props.FloatProperty(
         name="Transparency", default=0.0, min=0.0, max=1.0, update=update_shader_graph
     )
-    # TODO: do something on null?
-    is_diffuse_colour_null: BoolProperty(name="Is Null")
+    is_diffuse_colour_null: BoolProperty(name="Is Null", update=update_shader_graph)
     diffuse_colour_class: EnumProperty(
         items=[(x, x, "") for x in get_args(ColourClass)],
         name="Diffuse Colour Class",
-        update=update_shader_graph,
+        update=update_diffuse_colour,
     )
     diffuse_colour: bpy.props.FloatVectorProperty(
-        name="Diffuse Colour", subtype="COLOR", default=(1, 1, 1), min=0.0, max=1.0, size=3, update=update_shader_graph
+        name="Diffuse Colour",
+        subtype="COLOR",
+        default=(1, 1, 1),
+        min=0.0,
+        max=1.0,
+        size=3,
+        update=update_diffuse_colour,
     )
     diffuse_colour_ratio: bpy.props.FloatProperty(
-        name="Diffuse Ratio", default=0.0, min=0.0, max=1.0, update=update_shader_graph
+        name="Diffuse Ratio", default=0.0, min=0.0, max=1.0, update=update_diffuse_colour
     )
-    is_specular_colour_null: BoolProperty(name="Is Null")
+    is_specular_colour_null: BoolProperty(name="Is Null", update=update_shader_graph)
     specular_colour_class: EnumProperty(
         items=[(x, x, "") for x in get_args(ColourClass)],
         name="Specular Colour Class",
-        update=update_shader_graph,
+        update=update_specular_colour,
         default="IfcNormalisedRatioMeasure",
     )
     specular_colour: bpy.props.FloatVectorProperty(
@@ -248,7 +273,7 @@ class BIMStylesProperties(PropertyGroup):
         min=0.0,
         max=1.0,
         size=3,
-        update=update_shader_graph,
+        update=update_specular_colour,
     )
     specular_colour_ratio: bpy.props.FloatProperty(
         name="Specular Ratio",
@@ -256,16 +281,16 @@ class BIMStylesProperties(PropertyGroup):
         default=0.0,
         min=0.0,
         max=1.0,
-        update=update_shader_graph,
+        update=update_specular_colour,
     )
-    is_specular_highlight_null: BoolProperty(name="Is Null")
+    is_specular_highlight_null: BoolProperty(name="Is Null", update=update_shader_graph)
     specular_highlight: bpy.props.FloatProperty(
         name="Specular Highlight",
         description="Used as Roughness value in PHYSICAL Reflectance Method",
         default=0.0,
         min=0.0,
         max=1.0,
-        update=update_shader_graph,
+        update=update_specular_highlight_value,
     )
     reflectance_method: EnumProperty(
         name="Reflectance Method",
@@ -347,6 +372,16 @@ def update_shading_style(self: "BIMStyleProperties", context: bpy.types.Context)
         tool.Style.switch_shading(blender_material, self.active_style_type)
 
 
+def update_prefer_ifc_shading(self: "BIMStyleProperties", context: bpy.types.Context) -> None:
+    style_elements = tool.Style.get_style_elements(self.id_data)
+    has_external = tool.Style.has_blender_external_style(style_elements)
+    if self.prefer_ifc_shading or not has_external:
+        self.active_style_type = "Shading"
+    else:
+        self.active_style_type = "External"
+    self.id_data.update_tag()
+
+
 class BIMStyleProperties(PropertyGroup):
     ifc_definition_id: IntProperty(name="IFC Definition ID")
     active_style_type: EnumProperty(
@@ -356,9 +391,19 @@ class BIMStyleProperties(PropertyGroup):
         default="Shading",
         update=update_shading_style,
     )
+    prefer_ifc_shading: BoolProperty(
+        name="Flat / Pretty",
+        description=(
+            "Toggle between Flat (IFC-native shading) and Pretty (external .blend style). "
+            "When set to Flat, viewport switches to Material Preview or Rendered will not activate the external style."
+        ),
+        default=False,
+        update=update_prefer_ifc_shading,
+    )
     is_renaming: BoolProperty(description="Used to prevent triggering handler callback.", default=False)
 
     if TYPE_CHECKING:
         ifc_definition_id: int
         active_style_type: tool.Style.StyleType
+        prefer_ifc_shading: bool
         is_renaming: bool

@@ -15,6 +15,8 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Bonsai.  If not, see <http://www.gnu.org/licenses/>.
+#
+# This file was modified with the assistance of an AI coding tool.
 
 import tempfile
 from pathlib import Path
@@ -22,6 +24,7 @@ from typing import TYPE_CHECKING
 
 import bpy
 import ifcopenshell
+import numpy as np
 import pytest
 
 import bonsai
@@ -37,6 +40,46 @@ if TYPE_CHECKING:
 class TestImplementsTool(NewFile):
     def test_run(self):
         assert isinstance(subject(), bonsai.core.tool.Blender)
+
+
+class TestTransparentColor(NewFile):
+    def test_default_alpha_overrides_to_zero_one(self):
+        assert subject.transparent_color([1.0, 0.5, 0.25, 1.0]) == [1.0, 0.5, 0.25, 0.1]
+
+    def test_explicit_alpha_is_applied(self):
+        assert subject.transparent_color([1.0, 0.5, 0.25, 1.0], alpha=0.5) == [1.0, 0.5, 0.25, 0.5]
+
+    def test_does_not_mutate_input(self):
+        original = [1.0, 0.5, 0.25, 1.0]
+        subject.transparent_color(original)
+        assert original == [1.0, 0.5, 0.25, 1.0]
+
+    def test_returns_new_list_instance(self):
+        original = [1.0, 0.5, 0.25, 1.0]
+        result = subject.transparent_color(original)
+        assert result is not original
+
+
+class TestViewportDecoratorDrawBatch(NewFile):
+    def test_empty_content_pos_skips_shader_calls(self):
+        from unittest.mock import MagicMock
+
+        decorator = subject.ViewportDecorator()
+        decorator.line_shader = MagicMock()
+        decorator.shader = MagicMock()
+        decorator.draw_batch("LINES", [], (1.0, 1.0, 1.0, 1.0))
+        decorator.line_shader.uniform_float.assert_not_called()
+        decorator.shader.uniform_float.assert_not_called()
+
+    def test_empty_indices_skips_shader_calls(self):
+        from unittest.mock import MagicMock
+
+        decorator = subject.ViewportDecorator()
+        decorator.line_shader = MagicMock()
+        decorator.shader = MagicMock()
+        decorator.draw_batch("LINES", [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0)], (1.0, 1.0, 1.0, 1.0), indices=[])
+        decorator.line_shader.uniform_float.assert_not_called()
+        decorator.shader.uniform_float.assert_not_called()
 
 
 class TestCopyNodeGraph(NewFile):
@@ -160,6 +203,7 @@ class TestGetDebugInfo(NewFile):
         "bonsai_version",
         "bonsai_commit_hash",
         "bonsai_commit_date",
+        "bonsai_git_branch",
         "last_actions",
         "last_error",
     }
@@ -167,3 +211,29 @@ class TestGetDebugInfo(NewFile):
     def test_failed_to_load_returns_only_base_keys(self):
         info = bonsai.get_debug_info(bonsai_failed_to_load=True)
         assert set(info.keys()) == self.EXPECTED_KEYS
+
+
+class TestNpFrombufferLegacy(NewFile):
+    """Decoding ``n`` floats from a buffer must yield a length-``n`` array
+    regardless of whether the buffer was written as ``float32`` or ``float64``."""
+
+    @pytest.mark.parametrize("n", [3, 9])
+    @pytest.mark.parametrize("dtype", [np.float32, np.float64])
+    def test_decodes_to_n_elements(self, n, dtype):
+        data = np.arange(n, dtype=dtype).tobytes()
+        result = subject.np_frombuffer_legacy(data, n)
+        assert result.shape == (n,)
+        np.testing.assert_allclose(result, np.arange(n))
+
+
+class TestGetObjectFromGuidMissing(NewFile):
+    """``get_object_from_guid`` must honour its ``Optional[Object]`` return
+    contract: a GUID that does not resolve in the current IFC file yields
+    ``None``, not a ``RuntimeError``. Callers iterate stored GUID lists
+    (array children, library refs, …) and rely on the falsy return to
+    skip stale entries."""
+
+    def test_returns_none_when_guid_not_in_file(self):
+        bpy.ops.bim.create_project()
+        assert tool.Ifc.get() is not None
+        assert subject.get_object_from_guid("3iyt7r$Hf4_hQYNhBIDJI4") is None

@@ -593,6 +593,8 @@ class DumbProfileJoiner:
             axisl = (profile2.matrix_world.inverted() @ axis1[1]) - (profile2.matrix_world.inverted() @ axis1[0])
         elif connection1 == "ATSTART":
             axisl = (profile2.matrix_world.inverted() @ axis1[0]) - (profile2.matrix_world.inverted() @ axis1[1])
+        else:
+            assert False, connection1
         xy_angle = degrees(Vector((1, 0)).angle_signed(axisl.normalized().to_2d()))
         if xy_angle >= -135 and xy_angle <= -45:
             closest_plane = "bottom"
@@ -617,6 +619,8 @@ class DumbProfileJoiner:
                 axisl = (profile1.matrix_world.inverted() @ axis2[1]) - (profile1.matrix_world.inverted() @ axis2[0])
             elif connection2 == "ATSTART":
                 axisl = (profile1.matrix_world.inverted() @ axis2[0]) - (profile1.matrix_world.inverted() @ axis2[1])
+            else:
+                assert False, connection2
             xy_angle2 = degrees(Vector((1, 0)).angle_signed(axisl.normalized().to_2d()))
             if xy_angle2 >= -135 and xy_angle2 <= -45:
                 closest_plane2 = "bottom"
@@ -844,6 +848,8 @@ class DumbProfileJoiner:
             else:
                 y_axis = obj.matrix_world.to_quaternion() @ Vector((0, 1, 0))
                 z_axis = obj.matrix_world.to_quaternion() @ Vector((-1, 0, 0))
+        else:
+            assert False, plane
         return self.create_matrix(p, x_axis, y_axis, z_axis)
 
     def create_matrix(self, p: Vector, x: Vector, y: Vector, z: Vector) -> Matrix:
@@ -1002,6 +1008,14 @@ class EnableEditingExtrusionAxis(bpy.types.Operator, tool.Ifc.Operator):
     def _execute(self, context):
         self.unit_scale = ifcopenshell.util.unit.calculate_unit_scale(tool.Ifc.get())
         obj = context.active_object
+
+        # Commit any in-progress parametric (gizmo) draft on this object
+        # before switching to axis-edit. Otherwise the in-memory draft
+        # state is overwritten when the axis mesh is imported below,
+        # silently discarding the user's pending dimension edits.
+        if feature := tool.Parametric.is_object_editing(obj):
+            tool.Parametric.commit_object_draft(obj, feature.finish_op)
+
         element = tool.Ifc.get_entity(obj)
 
         axis = ifcopenshell.util.representation.get_representation(element, "Model", "Axis", "GRAPH_VIEW")
@@ -1157,7 +1171,8 @@ class DrawPolylineProfile(bpy.types.Operator, PolylineOperator, tool.Ifc.Operato
                         DumbProfileJoiner().join_V(profile2["obj"], profile1["obj"])
                         if connect_IfcFlowSegments:
                             bpy.ops.bim.mep_connect_elements(
-                                obj1_name=profile1["obj"].name, obj2_name=profile2["obj"].name
+                                obj1_guid=tool.Ifc.get_entity(profile1["obj"]).GlobalId,
+                                obj2_guid=tool.Ifc.get_entity(profile2["obj"]).GlobalId,
                             )
 
     def modal(self, context, event):

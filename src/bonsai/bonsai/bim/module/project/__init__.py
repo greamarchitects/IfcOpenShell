@@ -18,6 +18,8 @@
 
 import bpy
 
+import bonsai.tool as tool
+
 from . import decorator, gizmo, operator, prop, ui, workspace
 
 classes = (
@@ -28,6 +30,12 @@ classes = (
     operator.AppendLibraryElementByQuery,
     operator.AssignLibraryDeclaration,
     operator.BIM_FH_import_ifc,
+    operator.BIM_OT_apply_pending_opening_cuts,
+    operator.BIM_OT_dismiss_multi_instance_warning,
+    operator.BIM_OT_dismiss_pending_array_repair,
+    operator.BIM_OT_dismiss_pending_opening_cuts,
+    operator.BIM_OT_select_pending_array_repair,
+    operator.BIM_OT_select_pending_opening_cuts,
     operator.BIM_OT_load_clipping_planes,
     operator.BIM_OT_save_clipping_planes,
     operator.ChangeLibraryElement,
@@ -52,6 +60,8 @@ classes = (
     operator.LinkIfc,
     operator.LoadBlendMetadataAndIFC,
     operator.LoadLink,
+    operator.AutosavePrompt,
+    operator.LoadAutosavedRecoveryPopup,
     operator.LoadLinkedProject,
     operator.LoadProject,
     operator.LoadProjectElements,
@@ -82,6 +92,8 @@ classes = (
     prop.FilterCategory,
     prop.Link,
     prop.EditedObj,
+    prop.PendingArrayRepair,
+    prop.PendingOpeningRecut,
     prop.BIMProjectProperties,
     prop.MeasureToolSettings,
     ui.BIM_MT_new_project,
@@ -128,6 +140,7 @@ def register():
 def unregister():
     if not bpy.app.background:
         bpy.utils.unregister_tool(workspace.ExploreTool)
+    tool.Autosave.cancel_timer()
     del bpy.types.Scene.BIMProjectProperties
     del bpy.types.Scene.MeasureToolSettings
     bpy.app.handlers.load_post.remove(decorator.toggle_decorations_on_load)

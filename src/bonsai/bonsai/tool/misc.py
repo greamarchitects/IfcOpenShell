@@ -112,10 +112,14 @@ class Misc(bonsai.core.tool.Misc):
         reading data and never writing, to avoid the possibility of corrupting user preferences.
         """
 
+        # Byte offset of UserDef.user_menus within the UserDef C struct, per (major, minor)
+        # Blender version. Shifts whenever UserDef's fields change, so must be re-derived
+        # per version (e.g. from that Blender build's SDNA).
         OFFSET_USER_MENUS: dict[tuple[int, int], int] = {
             (4, 5): 10032,
             (5, 0): 10032,
             (5, 1): 10032,
+            (5, 2): 10800,
         }
 
         @classmethod
@@ -216,10 +220,12 @@ class Misc(bonsai.core.tool.Misc):
                         related_objects.append((element, ifcopenshell.util.placement.get_storey_elevation(element)))
         related_objects = sorted(related_objects, key=lambda e: e[1])
         storey_elevation = None
+        i = None
         for i, related_object in enumerate(related_objects):
             if related_object[0] == storey:
                 storey_elevation = related_object[1]
                 break
+        assert i is not None
         if i + total_storeys < len(related_objects):
             next_storey_elevation = related_objects[i + total_storeys][1]
             unit_scale = ifcopenshell.util.unit.calculate_unit_scale(tool.Ifc.get())
@@ -227,10 +233,8 @@ class Misc(bonsai.core.tool.Misc):
 
     @classmethod
     def set_object_origin_to_bottom(cls, obj: bpy.types.Object) -> None:
-        absolute_bound_box = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
-        min_z = min([c[2] for c in absolute_bound_box])
         new_origin = obj.matrix_world.translation.copy()
-        new_origin[2] = min_z
+        new_origin[2] = tool.Blender.get_object_world_bounding_box(obj)["min_z"]
         assert isinstance(obj.data, bpy.types.Mesh)
         obj.data.transform(
             Matrix.Translation(
@@ -249,11 +253,8 @@ class Misc(bonsai.core.tool.Misc):
 
     @classmethod
     def scale_object_to_height(cls, obj: bpy.types.Object, height: float) -> None:
-        absolute_bound_box = [obj.matrix_world @ Vector(c) for c in obj.bound_box]
-        max_z = max([c[2] for c in absolute_bound_box])
-        min_z = min([c[2] for c in absolute_bound_box])
-        current_absolute_height = max_z - min_z
-        scale_factor = height / current_absolute_height
+        bbox = tool.Blender.get_object_world_bounding_box(obj)
+        scale_factor = height / (bbox["max_z"] - bbox["min_z"])
         obj.matrix_world @= Matrix.Scale(
             scale_factor, 4, obj.matrix_world.inverted().to_quaternion() @ Vector((0, 0, 1))
         )

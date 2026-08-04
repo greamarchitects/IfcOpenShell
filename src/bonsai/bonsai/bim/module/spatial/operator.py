@@ -302,6 +302,15 @@ class SelectSimilarContainer(bpy.types.Operator):
             is_recursive=self.is_recursive,
         )
         self.is_recursive = True  # <-- forcibly reset
+
+        element = tool.Ifc.get_entity(context.active_object)
+        if element:
+            container = tool.Spatial.get_container(element)
+            if container:
+                result = f'location="{container.Name}"'
+                bpy.context.window_manager.clipboard = result
+                self.report({"INFO"}, f"({result}) was copied to the clipboard.")
+
         return {"FINISHED"}
 
 
@@ -507,7 +516,7 @@ class SetContainerVisibility(bpy.types.Operator):
         if self.mode == "ISOLATE":
             if tool.Ifc.get_schema() == "IFC2X3":
                 containers = tool.Ifc.get().by_type("IfcSpatialStructureElement")
-            elif tool.Ifc.get_schema() != "IFC2X3":
+            else:
                 containers = set(tool.Ifc.get().by_type("IfcSpatialElement"))
                 containers -= set(tool.Ifc.get().by_type("IfcSpatialZone"))
             for container in containers:

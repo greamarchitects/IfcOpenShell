@@ -44,10 +44,10 @@ unknown = 'UNKNOWN'
 def usedin(inst, ref_name):
     if inst is None:
         return []
-    (_, __, attr) = ref_name.split('.')
+    _, __, attr = ref_name.split('.')
 
     def filter():
-        for (ref, attr_idx) in inst.wrapped_data.file.get_inverse(inst, allow_duplicate=True, with_attribute_indices=True):
+        for ref, attr_idx in inst.wrapped_data.file.get_inverse(inst, allow_duplicate=True, with_attribute_indices=True):
             if ref.wrapped_data.get_attribute_names()[attr_idx].lower() == attr:
                 yield ref
     return list(filter())
@@ -7263,7 +7263,7 @@ class IfcCurveStyle_MeasureOfWidth:
     @staticmethod
     def __call__(self):
         curvewidth = express_getattr(self, 'CurveWidth', INDETERMINATE)
-        assert (not exists(curvewidth) or 'ifc4x3_rc1.ifcpositivelengthmeasure' in typeof(curvewidth) or ('ifc4x3_rc1.ifcdescriptivemeasure' in typeof(curvewidth) and curvewidth == 'bylayer')) is not False
+        assert (not exists(curvewidth) or 'ifc4x3_rc1.ifcpositivelengthmeasure' in typeof(curvewidth) or ('ifc4x3_rc1.ifcdescriptivemeasure' in typeof(curvewidth) and curvewidth == 'by layer')) is not False
 
 class IfcCurveStyle_IdentifiableCurveStyle:
     SCOPE = 'entity'
@@ -7549,7 +7549,7 @@ class IfcDoorLiningProperties_WR35:
 
     @staticmethod
     def __call__(self):
-        assert (exists(lambda : express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) and ('ifc4x3_rc1.ifcdoortype' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or 'ifc4x3_rc1.ifcdoorstyle' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)))) is not False
+        assert (exists(lambda: express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) and ('ifc4x3_rc1.ifcdoortype' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or 'ifc4x3_rc1.ifcdoorstyle' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)))) is not False
 
 class IfcDoorPanelProperties_ApplicableToType:
     SCOPE = 'entity'
@@ -7558,7 +7558,7 @@ class IfcDoorPanelProperties_ApplicableToType:
 
     @staticmethod
     def __call__(self):
-        assert (exists(lambda : express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) and ('ifc4x3_rc1.ifcdoortype' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or 'ifc4x3_rc1.ifcdoorstyle' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)))) is not False
+        assert (exists(lambda: express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) and ('ifc4x3_rc1.ifcdoortype' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or 'ifc4x3_rc1.ifcdoorstyle' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)))) is not False
 
 class IfcDoorType_CorrectPredefinedType:
     SCOPE = 'entity'
@@ -7577,7 +7577,7 @@ class IfcDraughtingPreDefinedColour_PreDefinedColourNames:
 
     @staticmethod
     def __call__(self):
-        assert (express_getattr(express_getattr(self, 'Name', INDETERMINATE), 'lower', INDETERMINATE)() in ['black', 'red', 'green', 'blue', 'yellow', 'magenta', 'cyan', 'white', 'bylayer']) is not False
+        assert (express_getattr(express_getattr(self, 'Name', INDETERMINATE), 'lower', INDETERMINATE)() in ['black', 'red', 'green', 'blue', 'yellow', 'magenta', 'cyan', 'white', 'by layer']) is not False
 
 class IfcDraughtingPreDefinedCurveFont_PreDefinedCurveFontNames:
     SCOPE = 'entity'
@@ -7586,7 +7586,7 @@ class IfcDraughtingPreDefinedCurveFont_PreDefinedCurveFontNames:
 
     @staticmethod
     def __call__(self):
-        assert (express_getattr(express_getattr(self, 'Name', INDETERMINATE), 'lower', INDETERMINATE)() in ['continuous', 'chain', 'chaindoubledash', 'dashed', 'dotted', 'bylayer']) is not False
+        assert (express_getattr(express_getattr(self, 'Name', INDETERMINATE), 'lower', INDETERMINATE)() in ['continuous', 'chain', 'chain double dash', 'dashed', 'dotted', 'by layer']) is not False
 
 class IfcDuctFitting_CorrectPredefinedType:
     SCOPE = 'entity'
@@ -12384,7 +12384,7 @@ class IfcTypeProduct_ApplicableOccurrence:
 
     @staticmethod
     def __call__(self):
-        assert (not exists(lambda : express_getitem(express_getattr(self, 'Types', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or sizeof([temp for temp in express_getattr(express_getitem(express_getattr(self, 'Types', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE), 'RelatedObjects', INDETERMINATE) if not 'ifc4x3_rc1.ifcproduct' in typeof(temp)]) == 0) is not False
+        assert (not exists(lambda: express_getitem(express_getattr(self, 'Types', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or sizeof([temp for temp in express_getattr(express_getitem(express_getattr(self, 'Types', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE), 'RelatedObjects', INDETERMINATE) if not 'ifc4x3_rc1.ifcproduct' in typeof(temp)]) == 0) is not False
 
 class IfcUShapeProfileDef_ValidFlangeThickness:
     SCOPE = 'entity'
@@ -12720,7 +12720,7 @@ class IfcWindowLiningProperties_WR34:
 
     @staticmethod
     def __call__(self):
-        assert (exists(lambda : express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) and ('ifc4x3_rc1.ifcwindowtype' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or 'ifc4x3_rc1.ifcwindowstyle' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)))) is not False
+        assert (exists(lambda: express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) and ('ifc4x3_rc1.ifcwindowtype' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or 'ifc4x3_rc1.ifcwindowstyle' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)))) is not False
 
 class IfcWindowPanelProperties_ApplicableToType:
     SCOPE = 'entity'
@@ -12729,7 +12729,7 @@ class IfcWindowPanelProperties_ApplicableToType:
 
     @staticmethod
     def __call__(self):
-        assert (exists(lambda : express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) and ('ifc4x3_rc1.ifcwindowtype' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or 'ifc4x3_rc1.ifcwindowstyle' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)))) is not False
+        assert (exists(lambda: express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) and ('ifc4x3_rc1.ifcwindowtype' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)) or 'ifc4x3_rc1.ifcwindowstyle' in typeof(express_getitem(express_getattr(self, 'DefinesType', INDETERMINATE), 1 - EXPRESS_ONE_BASED_INDEXING, INDETERMINATE)))) is not False
 
 class IfcWindowType_CorrectPredefinedType:
     SCOPE = 'entity'

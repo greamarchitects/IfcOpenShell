@@ -9,13 +9,13 @@ jobs:
 
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           submodules: recursive
           path: IfcOpenShell
 
       - name: Checkout Build Repository
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           repository: IfcOpenShell/build-outputs
           path: ifcopenshell_build
@@ -29,7 +29,7 @@ jobs:
           python ../IfcOpenShell/nix/cache_dependencies.py unpack
 
       - name: ccache
-        uses: hendrikmuhs/ccache-action@v1.2.22
+        uses: hendrikmuhs/ccache-action@v1.2.23
         with:
           key: ubuntu-22.04-${{ runner.arch }}
 

@@ -15,6 +15,8 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with Bonsai.  If not, see <http://www.gnu.org/licenses/>.
+#
+# This file was modified with the assistance of an AI coding tool.
 
 from __future__ import annotations
 
@@ -28,7 +30,7 @@ from collections.abc import Generator
 from inspect import signature
 from math import radians
 from pathlib import Path
-from typing import Any, Union
+from typing import Any, Union, cast
 
 import bpy
 import ifcopenshell
@@ -138,7 +140,7 @@ class PanelSpy:
             else:
                 props = kwargs.get("data")
                 name = kwargs.get("property")
-            props: bpy.types.bpy_struct
+            props = cast(bpy.types.bpy_struct, props)
             text = kwargs.get("text", props.bl_rna.properties[name].name)
             icon = kwargs.get("icon", None)
             prop_type = props.bl_rna.properties[name].type
@@ -185,7 +187,14 @@ class PanelSpy:
             after = ""
             if self.spied_labels:
                 after = self.spied_labels[-1]
-            spied_operator = {"operator": operator, "icon": icon, "text": text, "kwargs": {}, "after": after}
+            spied_operator = {
+                "operator": operator,
+                "icon": icon,
+                "text": text,
+                "kwargs": {},
+                "after": after,
+                "bl_idname": bl_idname,
+            }
             self.spied_operators.append(spied_operator)
             return OperatorSpy(spied_operator)
         elif self.spied_attr == "panel":
@@ -207,6 +216,14 @@ class OperatorSpy:
             super().__setattr__(name, value)
         else:
             self.spied_data["kwargs"][name] = value
+
+    @property
+    def bl_rna(self) -> Any:
+        # Mirror the real `UILayout.operator()` return value (an OperatorProperties
+        # instance), which exposes `.bl_rna` so panel code such as
+        # `"module" in op.bl_rna.properties` (bonsai/bim/helper.py) also works when
+        # drawing is spied on during BDD tests.
+        return getattr(bpy.types, self.spied_data["bl_idname"]).bl_rna
 
 
 class TemplateListSpy(PanelSpy):
@@ -451,6 +468,7 @@ def i_trigger_operator(operator):
 @then(parsers.parse('I see "{text}"'))
 def i_see_text(text):
     assert panel_spy
+    text = replace_variables(text)
     panel_spy.refresh_spy()
     assert [l for l in panel_spy.spied_labels if text in l], f"Text {text} not found in {panel_spy.spied_labels}"
 
@@ -585,6 +603,7 @@ def i_select_the_row_where_i_see_text_in_the_nth_list(text, nth):
 @then(parsers.parse('I don\'t see "{text}"'))
 def i_dont_see_text(text):
     assert panel_spy
+    text = replace_variables(text)
     panel_spy.refresh_spy()
     assert not [l for l in panel_spy.spied_labels if text in l], f"Text {text} found in {panel_spy.spied_labels}"
 
@@ -771,7 +790,11 @@ def i_create_default_mep_types():
     with bpy.context.temp_override(active_object=bpy.data.objects["IfcActuatorType/ACTUATOR"]):
         bpy.ops.bim.add_port()
         # port at cube's left side
-        bpy.data.objects["IfcDistributionPort/Port"].location = (-0.5, 0, 0)
+        # Newly created ports are never given an explicit IFC `.Name` (see
+        # `core/system.py:create_port_at_cursor` / `tool/system.py`), so
+        # `tool.Loader.get_name()` falls back to the standard "Unnamed" convention
+        # used throughout Bonsai for freshly-created, not-yet-named elements.
+        bpy.data.objects["IfcDistributionPort/Unnamed"].location = (-0.5, 0, 0)
         bpy.ops.bim.hide_ports()
 
 
@@ -1071,6 +1094,7 @@ def then_the_object_name_is_placed_in_the_collection_collection(name: str, colle
 @given(parsers.parse('additionally the object "{name}" is selected'))
 @when(parsers.parse('additionally the object "{name}" is selected'))
 def additionally_the_object_name_is_selected(name):
+    name = replace_variables(name)
     obj = bpy.context.scene.objects.get(name)
     if not obj:
         total = len(bpy.context.scene.objects)
@@ -1131,6 +1155,17 @@ def the_variable_key_is_value(key, value):
     variables[key] = eval(replace_variables(value))
 
 
+@then(parsers.parse('the variable "{key}" equals "{value}"'))
+def the_variable_key_equals_value(key, value):
+    assert key in variables, f'Variable "{key}" was never set'
+    expected = eval(replace_variables(value))
+    actual = variables[key]
+    if isinstance(actual, float) and isinstance(expected, float):
+        assert abs(actual - expected) < 1e-5, f'Variable "{key}" is {actual!r}, expected {expected!r}'
+    else:
+        assert actual == expected, f'Variable "{key}" is {actual!r}, expected {expected!r}'
+
+
 @then("nothing happens")
 def nothing_happens():
     pass
@@ -1140,6 +1175,7 @@ def nothing_happens():
 @when(parsers.parse('the object "{name}" exists'))
 @then(parsers.parse('the object "{name}" exists'))
 def the_object_name_exists(name: str) -> bpy.types.Object:
+    name = replace_variables(name)
     # Some objects from linked collections may share the same name. This disambiguates them.
     if name.startswith("Col:"):
         _, collection_name, name = name.split(":")
@@ -1154,6 +1190,7 @@ def the_object_name_exists(name: str) -> bpy.types.Object:
 
 @then(parsers.parse('the object "{name}" does not exist'))
 def the_object_name_does_not_exist(name) -> None:
+    name = replace_variables(name)
     obj = bpy.data.objects.get(name)
     assert obj is None, f'The object "{name}" exists'
 
@@ -1751,7 +1788,17 @@ def i_load_the_ifc_test_file(filepath):
 @given("I load the demo construction library")
 @when("I load the demo construction library")
 def i_add_a_construction_library():
-    lib_path = "./bonsai/bim/data/libraries/IFC4 Demo Library.ifc"
+    # Pick the library file whose schema matches the current project so the
+    # appended types are valid (IFC2X3-vs-IFC4 entity attributes differ).
+    schema_to_library = {
+        "IFC2X3": "IFC2X3 Demo Library.ifc",
+        "IFC4": "IFC4 Demo Library.ifc",
+        "IFC4X3": "IFC4X3 Demo Library.ifc",
+        "IFC4X3_ADD2": "IFC4X3 Demo Library.ifc",
+    }
+    schema = tool.Ifc.get().schema
+    lib_name = schema_to_library.get(schema, "IFC4 Demo Library.ifc")
+    lib_path = f"./bonsai/bim/data/libraries/{lib_name}"
     bpy.ops.bim.select_library_file(filepath=lib_path, append_all=True)
 
 

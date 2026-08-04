@@ -64,10 +64,11 @@ def assign_container(
         spatial.disable_editing(obj)
         all_elements.add(root_element)
         all_elements.update(spatial.get_decomposition(root_element))
-    if products := [e for e in root_elements if spatial.can_contain(container, root_element)]:
+    if products := [e for e in root_elements if spatial.can_contain(container, e)]:
         ifc.run("spatial.assign_container", products=products, relating_structure=container)
     for element in all_elements:
-        collector.assign(ifc.get_object(element))
+        if obj := ifc.get_object(element):
+            collector.assign(obj)
 
 
 def enable_editing_container(spatial: type[tool.Spatial], obj: bpy.types.Object) -> None:
@@ -221,7 +222,6 @@ def generate_space(
 
     if element and element.is_a("IfcSpace"):
         spatial.set_space_representation_from_polygon(active_obj, element, space_polygon, h, polygon_is_si=True)
-        spatial.translate_obj_to_z_location(active_obj, z)
     else:
         if relating_type:
             name = model.generate_occurrence_name(relating_type, "IfcSpace")

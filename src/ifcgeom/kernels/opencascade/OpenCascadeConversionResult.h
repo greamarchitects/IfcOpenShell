@@ -24,9 +24,6 @@
 #include <BRepGProp_Face.hxx>
 
 #include <Poly_Triangulation.hxx>
-#include <TColgp_Array1OfPnt.hxx>
-#include <TColgp_Array1OfPnt2d.hxx>
-
 #include <TopExp_Explorer.hxx>
 #include <BRepTools.hxx>
 
@@ -45,6 +42,8 @@ namespace ifcopenshell {
 
 		class IFC_GEOMLIBRARY_API OpenCascadeShape : public IfcGeom::ConversionResultShape {
 		public:
+            std::string type() const override { return "OpenCascadeShape"; }
+
 			OpenCascadeShape(const TopoDS_Shape& shape)
 				: shape_(shape) {}
 			OpenCascadeShape(TopoDS_Shape&& shape)
@@ -53,7 +52,7 @@ namespace ifcopenshell {
 			const TopoDS_Shape& shape() const { return shape_; }
 			operator const TopoDS_Shape& () { return shape_; }
 
-			virtual void Triangulate(ifcopenshell::geometry::Settings settings, const ifcopenshell::geometry::taxonomy::matrix4& place, IfcGeom::Representation::Triangulation* t, int item_id, int surface_style_id) const;
+			virtual void Triangulate(ifcopenshell::geometry::Settings settings, const ifcopenshell::geometry::taxonomy::matrix4& place, IfcGeom::Representation::Triangulation* t, int item_id, int surface_style_id, Logger& logger = Logger::Root()) const;
 			virtual void Serialize(const ifcopenshell::geometry::taxonomy::matrix4& place, std::string&) const;
 
 			virtual IfcGeom::ConversionResultShape* clone() const {
@@ -78,9 +77,9 @@ namespace ifcopenshell {
 			// @todo this must be something with a virtual dtor so that we can delete it.
 			virtual std::pair<OpaqueCoordinate<3>, OpaqueCoordinate<3>> bounding_box() const;
 
-			virtual OpaqueNumber* length();
-			virtual OpaqueNumber* area();
-			virtual OpaqueNumber* volume();
+			virtual OpaqueNumber length();
+			virtual OpaqueNumber area();
+			virtual OpaqueNumber volume();
 
 			virtual OpaqueCoordinate<3> position();
 			virtual OpaqueCoordinate<3> axis();
@@ -101,8 +100,8 @@ namespace ifcopenshell {
 			virtual ConversionResultShape* intersect(ConversionResultShape*);
 			virtual ConversionResultShape* concat(ConversionResultShape*);
 
-			virtual void map(OpaqueCoordinate<4>& from, OpaqueCoordinate<4>& to);
-			virtual void map(const std::vector<OpaqueCoordinate<4>>& from, const std::vector<OpaqueCoordinate<4>>& to);
+			virtual std::size_t map(OpaqueCoordinate<4>& from, OpaqueCoordinate<4>& to);
+			virtual std::size_t map(const std::vector<OpaqueCoordinate<4>>& from, const std::vector<OpaqueCoordinate<4>>& to);
 			virtual ConversionResultShape* moved(ifcopenshell::geometry::taxonomy::matrix4::ptr) const;
 
 			virtual bool surface_area_along_direction(double tol, const ifcopenshell::geometry::taxonomy::matrix4::ptr&, double& along_x, double& along_y, double& along_z) const;

@@ -76,7 +76,7 @@ struct piecewise_fn_evaluator : public fn_evaluator {
             span_start += fn->length();
         }
 
-        Logger::Error("piecewise span not found.");
+        logger_.Error("GEO", 37, "piecewise span not found.");
         return {0, 0, nullptr};
     }
 
@@ -104,26 +104,12 @@ struct gradient_fn_evaluator : public fn_evaluator {
         auto xy = horizontal_evaluator_.evaluate(u);
         auto uz = vertical_evaluator_.evaluate(u);
 
-        // curvature is stored in row 3 - capture it and remove it from the xy and uz matrices
-        // so the matrix operations (ie multiplication) works correct.y
-        auto horizontal_curvature = xy.row(3);
-        xy.row(3) = Eigen::Vector4d(0, 0, 0, 1);
-
-        auto vertical_curvature = uz.row(3);
-        uz.row(3) = Eigen::Vector4d(0, 0, 0, 1);
-
         uz(0, 3) = 0.0;      // x is distance along. zero it out so it doesn't add to the x from horizontal
         uz.col(1).swap(uz.col(2)); // uz is 2D in distance along - y plane, swap y and z so elevations become z
         uz.row(1).swap(uz.row(2));
 
         Eigen::Matrix4d m;
         m = xy * uz; // combine horizontal and vertical
-
-        // Put curvature back into the solution matrix
-        // curvature for vertical is in column 0, need it to be in column 1
-        // so it doesn't add to curvature for horizontal
-        std::swap(vertical_curvature(0), vertical_curvature(1));
-        m.row(3) = horizontal_curvature + vertical_curvature;
 
         return m;
     }
@@ -222,7 +208,7 @@ struct offset_fn_evaluator : public fn_evaluator {
 
 
 
-function_item_evaluator::function_item_evaluator(const ifcopenshell::geometry::Settings& settings,taxonomy::function_item::const_ptr fn) {
+function_item_evaluator::function_item_evaluator(const ifcopenshell::geometry::Settings& settings,taxonomy::function_item::const_ptr fn, Logger& logger) : logger_(logger) {
     auto kind = fn->kind();
     if (kind == taxonomy::FUNCTOR_ITEM) {
         fn_evaluator_ = new functor_fn_evaluator(std::dynamic_pointer_cast<const taxonomy::functor_item>(fn),settings);
@@ -235,11 +221,11 @@ function_item_evaluator::function_item_evaluator(const ifcopenshell::geometry::S
     } else if (kind == taxonomy::OFFSET_FUNCTION) {
         fn_evaluator_ = new offset_fn_evaluator(std::dynamic_pointer_cast<const taxonomy::offset_function>(fn), settings);
     } else {
-        Logger::Error("Unexpected function type");
+        logger_.Error("GEO", 38, "Unexpected function type");
     }
 }
 
-function_item_evaluator::function_item_evaluator(const function_item_evaluator& other) {
+function_item_evaluator::function_item_evaluator(const function_item_evaluator& other) : logger_(other.logger_) {
     fn_evaluator_ = other.fn_evaluator_->clone();
     eval_points_ = other.eval_points_;
 }

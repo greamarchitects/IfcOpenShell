@@ -85,8 +85,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "lib", p
 
 try:
     from . import ifcopenshell_wrapper
-except Exception:
-    raise ImportError("IfcOpenShell not built for '%s'" % python_distribution)
+except Exception as e:
+    raise ImportError("IfcOpenShell not built for '%s' (%s)" % (python_distribution, e)) from e
 
 # `_file`, `_stream` is used only for annotations inside this file,
 # see https://github.com/microsoft/pyright/discussions/9065.
@@ -95,6 +95,21 @@ from .entity_instance import entity_instance, register_schema_attributes
 from .file import file, rocksdb_lazy_instance
 from .file import file as _file
 from .sql import sqlite, sqlite_entity
+
+get_log = ifcopenshell_wrapper.get_log
+logger = ifcopenshell_wrapper.logger if hasattr(ifcopenshell_wrapper, "logger") else None
+if hasattr(ifcopenshell_wrapper, "logger_or_root"):
+    logger_or_root = ifcopenshell_wrapper.logger_or_root
+else:
+
+    def logger_or_root(_logger: ifcopenshell_wrapper.logger | None) -> None:
+        return None
+
+
+# TODO: drop this function and all callsites after we migrate to the new build.
+def optional_logger_args(logger: ifcopenshell_wrapper.logger | None) -> tuple[logger] | tuple[()]:
+    return (logger,) if logger is not None else ()
+
 
 # explicitly specify available imported symbols
 # (it's a requirement for a typed library)
@@ -131,10 +146,20 @@ class SchemaError(Error):
 
 @overload
 def open(
-    path: Union[os.PathLike, str], format: SupportedFormat = None, *, should_stream: Literal[False] = False
+    path: Union[os.PathLike, str],
+    format: SupportedFormat = None,
+    *,
+    should_stream: Literal[False] = False,
+    logger: Optional[logger] = None,
 ) -> Union[_file, sqlite]: ...
 @overload
-def open(path: Union[os.PathLike, str], format: SupportedFormat = None, *, should_stream: Literal[True]) -> _stream: ...
+def open(
+    path: Union[os.PathLike, str],
+    format: SupportedFormat = None,
+    *,
+    should_stream: Literal[True],
+    logger: Optional[logger] = None,
+) -> _stream: ...
 @overload
 def open(
     path: Union[os.PathLike, str],
@@ -142,6 +167,7 @@ def open(
     *,
     should_stream: bool = False,
     readonly: bool = False,
+    logger: Optional[logger] = None,
 ) -> Union[_file, sqlite, _stream]: ...
 def open(
     path: Union[os.PathLike, str],
@@ -150,11 +176,13 @@ def open(
     readonly: bool = False,
     mmap: bool = False,
     bypass_types: Optional[Sequence[str]] = None,
+    logger: Optional[logger] = None,
 ) -> Union[_file, sqlite, _stream]:
     """Loads an IFC dataset from a filepath
 
     :param should_stream: Whether to open the file in streaming mode. Could be useful
         for reading large files.
+    :param logger: Logger that receives native parser messages.
 
     You can specify a file format. If no format is given, it is guessed from
     its extension.
@@ -178,8 +206,9 @@ def open(
         raise FileNotFoundError(f"Path does not exist: '{path}'.")
     if format is None:
         format = guess_format(path)
+    logger = logger_or_root(logger)
     if format == ".ifcXML":
-        f = ifcopenshell_wrapper.parse_ifcxml(str(path.absolute()))
+        f = ifcopenshell_wrapper.parse_ifcxml(str(path.absolute()), *optional_logger_args(logger))
         if f:
             return file(f)
         raise OSError(f"Failed to parse .ifcXML file from {path}")
@@ -188,7 +217,7 @@ def open(
             with zipfile.ZipFile(path) as zf:
                 for name in zf.namelist():
                     if Path(name).suffix.lower() in (".ifc", ".ifcxml"):
-                        return open(zf.extract(name, unzipped_path))
+                        return open(zf.extract(name, unzipped_path), logger=logger)
                 else:
                     raise LookupError(f"No .ifc or .ifcXML file found in {path}")
     if format == ".ifcSQLite":
@@ -196,9 +225,9 @@ def open(
     if should_stream:
         return stream(path)
     if readonly:  # Temporary conditional see #7131. Remove once newer builds don't segfault on Linux.
-        f = ifcopenshell_wrapper.open(str(path.absolute()), readonly=readonly)
+        f = ifcopenshell_wrapper.open(str(path.absolute()), readonly, *optional_logger_args(logger))
     elif bypass_types:
-        f = ifcopenshell_wrapper.file(ifcopenshell_wrapper.uninitialized_tag())
+        f = ifcopenshell_wrapper.file(ifcopenshell_wrapper.uninitialized_tag(), *optional_logger_args(logger))
         for ty in bypass_types:
             f.bypass_type(ty)
         if mmap:
@@ -208,9 +237,12 @@ def open(
             f.initialize(str(path.absolute()))
     elif mmap:
         # mmap parameter is only available for builds with USE_MMAP, not used in our main builds
-        f = ifcopenshell_wrapper.open(str(path.absolute()), mmap=mmap)  # ty: ignore[unknown-argument]
+        kwargs = {"mmap": mmap}
+        if logger is not None:
+            kwargs["logger"] = logger
+        f = ifcopenshell_wrapper.open(str(path.absolute()), **kwargs)
     else:
-        f = ifcopenshell_wrapper.open(str(path.absolute()))
+        f = ifcopenshell_wrapper.open(str(path.absolute()), False, *optional_logger_args(logger))
     return file(f)
 
 
@@ -282,12 +314,13 @@ def schema_by_name(
         you are testing non-ISO IFC releases.
     :return: Schema definition object.
     """
+    import ifcopenshell.util.schema
+
     assert schema_version or schema, "Either schema or schema_version must be specified."
     if schema_version:
-        prefixes = ("IFC", "X", "_ADD", "_TC")
-        schema = "".join("".join(map(str, t)) if t[1] else "" for t in zip(prefixes, schema_version))
+        schema = ifcopenshell.util.schema.get_schema_name_from_version(schema_version)
     else:
-        schema = {"IFC4X3": "IFC4X3_ADD2"}.get(schema, schema)
+        schema = ifcopenshell.util.schema.get_schema_identifier(schema)
     return ifcopenshell_wrapper.schema_by_name(schema)
 
 
@@ -389,4 +422,3 @@ def convert_path_to_rocksdb(ifcspf_path: Union[Path, str], rocksdb_path: Union[P
 
 version_core = ifcopenshell_wrapper.version()
 __version__ = version = "0.0.0"
-get_log = ifcopenshell_wrapper.get_log

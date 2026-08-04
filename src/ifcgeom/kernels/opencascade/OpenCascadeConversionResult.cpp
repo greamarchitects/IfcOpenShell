@@ -31,7 +31,6 @@
 
 using IfcGeom::OpaqueNumber;
 using IfcGeom::OpaqueCoordinate;
-using IfcGeom::NumberNativeDouble;
 using IfcGeom::ConversionResultShape;
 
 namespace {
@@ -47,7 +46,7 @@ namespace {
 	}
 }
 
-void ifcopenshell::geometry::OpenCascadeShape::Triangulate(ifcopenshell::geometry::Settings settings, const ifcopenshell::geometry::taxonomy::matrix4& place, IfcGeom::Representation::Triangulation* t, int item_id, int surface_style_id) const {
+void ifcopenshell::geometry::OpenCascadeShape::Triangulate(ifcopenshell::geometry::Settings settings, const ifcopenshell::geometry::taxonomy::matrix4& place, IfcGeom::Representation::Triangulation* t, int item_id, int surface_style_id, Logger& logger) const {
 
 	// @todo remove duplication with OpenCascadeKernel::convert(const taxonomy::matrix4::ptr matrix, gp_GTrsf& trsf);
 	// above can be static?
@@ -87,7 +86,7 @@ void ifcopenshell::geometry::OpenCascadeShape::Triangulate(ifcopenshell::geometr
 		try {
 			BRepMesh_IncrementalMesh(shape_, settings.get<settings::MesherLinearDeflection>().get(), false, settings.get<settings::MesherAngularDeflection>().get());
 		} catch (...) {
-			Logger::Message(Logger::LOG_ERROR, "Failed to triangulate shape");
+			Logger::Root().Message(Logger::LOG_ERROR, "GEO", 183, "Failed to triangulate shape");
 			return;
 		}
 	}
@@ -110,10 +109,10 @@ void ifcopenshell::geometry::OpenCascadeShape::Triangulate(ifcopenshell::geometr
 		std::vector<std::tuple<int, int, int>> triangle_indices;
 
 		TopLoc_Location loc;
-		Handle_Poly_Triangulation tri = BRep_Tool::Triangulation(face, loc);
+		opencascade::handle<Poly_Triangulation> tri = BRep_Tool::Triangulation(face, loc);
 
 		if (tri.IsNull()) {
-			Logger::Message(Logger::LOG_ERROR, "Triangulation missing for face");
+			Logger::Root().Message(Logger::LOG_ERROR, "GEO", 184, "Triangulation missing for face");
 		} else {
 			// Keep track of the number of times an edge is used
 			// Manifold edges (i.e. edges used twice) are deemed invisible
@@ -146,7 +145,7 @@ void ifcopenshell::geometry::OpenCascadeShape::Triangulate(ifcopenshell::geometr
 							normal = normal_direction;
 						}
 					} else {
-						Handle_Geom_Surface surf = BRep_Tool::Surface(face);
+						opencascade::handle<Geom_Surface> surf = BRep_Tool::Surface(face);
 						// Special case the normal at the poles of a spherical surface
 						if (surf->DynamicType() == STANDARD_TYPE(Geom_SphericalSurface)) {
 							if (fabs(fabs(uv.Y()) - M_PI / 2.) < 1.e-9) {
@@ -166,7 +165,7 @@ void ifcopenshell::geometry::OpenCascadeShape::Triangulate(ifcopenshell::geometr
 				}
 			}
 
-			const Poly_Array1OfTriangle& triangles = tri->Triangles();
+			const NCollection_Array1<Poly_Triangle>& triangles = tri->Triangles();
 			for (int i = 1; i <= triangles.Length(); ++i) {
 				int n1, n2, n3;
 				if (face.Orientation() == TopAbs_REVERSED)
@@ -174,7 +173,7 @@ void ifcopenshell::geometry::OpenCascadeShape::Triangulate(ifcopenshell::geometr
 				else triangles(i).Get(n1, n2, n3);
 
 				if (dict[n1] == dict[n2] || dict[n2] == dict[n3] || dict[n3] == dict[n1]) {
-					Logger::Warning("Mesher generated a degenerate triangle, ignoring");
+					logger.Warning("GEO", 185, "Mesher generated a degenerate triangle, ignoring");
 					continue;
 				}
 
@@ -245,7 +244,7 @@ void ifcopenshell::geometry::OpenCascadeShape::Triangulate(ifcopenshell::geometr
 		// TopExp_Explorer texp(s, TopAbs_EDGE, TopAbs_FACE) to find edges that do not
 		// belong to any face.
 
-		TopTools_ListOfShape edges;
+		NCollection_List<TopoDS_Shape> edges;
 		// First collect edges part of wire in order
 		for (TopExp_Explorer texp(shape_, TopAbs_WIRE); texp.More(); texp.Next()) {
 			BRepTools_WireExplorer wexp(TopoDS::Wire(texp.Current()));
@@ -259,7 +258,7 @@ void ifcopenshell::geometry::OpenCascadeShape::Triangulate(ifcopenshell::geometr
 			edges.Append(texp.Current());
 		}
 
-		for (TopTools_ListIteratorOfListOfShape texp(edges); texp.More(); texp.Next()) {
+		for (NCollection_List<TopoDS_Shape>::Iterator texp(edges); texp.More(); texp.Next()) {
 			BRepAdaptor_Curve crv(TopoDS::Edge(texp.Value()));
 			GCPnts_QuasiUniformDeflection tessellater(crv, settings.get<settings::MesherLinearDeflection>().get());
 			int n = tessellater.NbPoints();
@@ -385,28 +384,28 @@ int ifcopenshell::geometry::OpenCascadeShape::num_faces() const
 	return IfcGeom::util::count(shape_, TopAbs_FACE);
 }
 
-OpaqueNumber* ifcopenshell::geometry::OpenCascadeShape::OpenCascadeShape::length()
+OpaqueNumber ifcopenshell::geometry::OpenCascadeShape::OpenCascadeShape::length()
 {
 	GProp_GProps prop;
 	BRepGProp::LinearProperties(shape_, prop);
 	double l = prop.Mass();
-	return new NumberNativeDouble(l);
+	return OpaqueNumber(l);
 }
 
-OpaqueNumber* ifcopenshell::geometry::OpenCascadeShape::area()
+OpaqueNumber ifcopenshell::geometry::OpenCascadeShape::area()
 {
 	GProp_GProps prop;
 	BRepGProp::SurfaceProperties(shape_, prop);
 	double l = prop.Mass();
-	return new NumberNativeDouble(l);
+	return OpaqueNumber(l);
 }
 
-OpaqueNumber* ifcopenshell::geometry::OpenCascadeShape::volume()
+OpaqueNumber ifcopenshell::geometry::OpenCascadeShape::volume()
 {
 	GProp_GProps prop;
 	BRepGProp::VolumeProperties(shape_, prop);
 	double l = prop.Mass();
-	return new NumberNativeDouble(l);
+	return OpaqueNumber(l);
 }
 
 #include <Geom_Plane.hxx>
@@ -419,9 +418,9 @@ OpaqueCoordinate<3> ifcopenshell::geometry::OpenCascadeShape::position()
 		if (plane) {
 			auto loc = plane->Location();
 			return OpaqueCoordinate<3>(
-				new NumberNativeDouble(loc.X()),
-				new NumberNativeDouble(loc.Y()),
-				new NumberNativeDouble(loc.Z())
+				OpaqueNumber(loc.X()),
+				OpaqueNumber(loc.Y()),
+				OpaqueNumber(loc.Z())
 			);
 		}
 	}
@@ -436,9 +435,9 @@ OpaqueCoordinate<3> ifcopenshell::geometry::OpenCascadeShape::axis()
 		if (plane) {
 			auto dir = plane->Axis().Direction();
 			return OpaqueCoordinate<3>(
-				new NumberNativeDouble(dir.X()),
-				new NumberNativeDouble(dir.Y()),
-				new NumberNativeDouble(dir.Z())
+				OpaqueNumber(dir.X()),
+				OpaqueNumber(dir.Y()),
+				OpaqueNumber(dir.Z())
 			);
 		}
 	}
@@ -454,10 +453,10 @@ OpaqueCoordinate<4> ifcopenshell::geometry::OpenCascadeShape::plane_equation()
 			double a, b, c, d;
 			plane->Pln().Coefficients(a, b, c, d);
 			return OpaqueCoordinate<4>(
-				new NumberNativeDouble(a),
-				new NumberNativeDouble(b),
-				new NumberNativeDouble(c),
-				new NumberNativeDouble(d)
+				OpaqueNumber(a),
+				OpaqueNumber(b),
+				OpaqueNumber(c),
+				OpaqueNumber(d)
 			);
 		}
 	}
@@ -495,7 +494,7 @@ ConversionResultShape* ifcopenshell::geometry::OpenCascadeShape::wrap_in_compoun
 
 std::vector<ConversionResultShape*> ifcopenshell::geometry::OpenCascadeShape::vertices()
 {
-	TopTools_IndexedMapOfShape map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
 	TopExp::MapShapes(shape_, TopAbs_VERTEX, map);
 	std::vector<ConversionResultShape*> vec;
 	for (int i = 1; i <= map.Extent(); ++i) {
@@ -506,7 +505,7 @@ std::vector<ConversionResultShape*> ifcopenshell::geometry::OpenCascadeShape::ve
 
 std::vector<ConversionResultShape*> ifcopenshell::geometry::OpenCascadeShape::edges()
 {
-	TopTools_IndexedMapOfShape map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
 	TopExp::MapShapes(shape_, TopAbs_EDGE, map);
 	std::vector<ConversionResultShape*> vec;
 	for (int i = 1; i <= map.Extent(); ++i) {
@@ -517,7 +516,7 @@ std::vector<ConversionResultShape*> ifcopenshell::geometry::OpenCascadeShape::ed
 
 std::vector<ConversionResultShape*> ifcopenshell::geometry::OpenCascadeShape::facets()
 {
-	TopTools_IndexedMapOfShape map;
+    NCollection_IndexedMap<TopoDS_Shape, TopTools_ShapeMapHasher> map;
 	TopExp::MapShapes(shape_, TopAbs_FACE, map);
 	std::vector<ConversionResultShape*> vec;
 	for (int i = 1; i <= map.Extent(); ++i) {
@@ -619,7 +618,7 @@ namespace {
 					try {
 						BRepMesh_IncrementalMesh(s, tol);
 					} catch (...) {
-						Logger::Message(Logger::LOG_ERROR, "Failed to triangulate shape");
+						Logger::Root().Message(Logger::LOG_ERROR, "GEO", 186, "Failed to triangulate shape");
 						return;
 					}
 					meshed = true;
@@ -635,7 +634,7 @@ namespace {
 						coords.push_back(tri->Node(i).Transformed(loc).XYZ());
 					}
 
-					const Poly_Array1OfTriangle& triangles = tri->Triangles();
+					const NCollection_Array1<Poly_Triangle>& triangles = tri->Triangles();
 					for (int i = 1; i <= triangles.Length(); ++i) {
 						int n1, n2, n3;
 
@@ -696,10 +695,10 @@ bool ifcopenshell::geometry::OpenCascadeShape::surface_area_along_direction(doub
 	return true;
 }
 
-void ifcopenshell::geometry::OpenCascadeShape::map(OpaqueCoordinate<4>&, OpaqueCoordinate<4>&) {
+std::size_t ifcopenshell::geometry::OpenCascadeShape::map(OpaqueCoordinate<4>&, OpaqueCoordinate<4>&) {
 	throw std::runtime_error("Not implemented");
 }
 
-void ifcopenshell::geometry::OpenCascadeShape::map(const std::vector<OpaqueCoordinate<4>>&, const std::vector<OpaqueCoordinate<4>>&) {
+std::size_t ifcopenshell::geometry::OpenCascadeShape::map(const std::vector<OpaqueCoordinate<4>>&, const std::vector<OpaqueCoordinate<4>>&) {
 	throw std::runtime_error("Not implemented");
 }

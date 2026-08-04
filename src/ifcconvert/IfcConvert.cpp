@@ -174,7 +174,7 @@ bool file_exists(const std::string& filename) {
 
 static std::basic_stringstream<path_t::value_type> log_stream;
 void write_log(bool);
-void fix_quantities(IfcParse::IfcFile&, bool, bool, bool);
+void fix_quantities(IfcParse::IfcFile&, bool, bool, bool, Logger& logger = Logger::Root());
 std::string format_duration(time_t start, time_t end);
 
 /// @todo make the filters non-global
@@ -204,7 +204,7 @@ size_t read_filters_from_file(const std::string&, inclusion_filter&, inclusion_t
 void parse_filter(geom_filter &, const std::vector<std::string>&);
 std::vector<IfcGeom::filter_t> setup_filters(const std::vector<geom_filter>&, const std::string&);
 
-bool init_input_file(const std::string& filename, IfcParse::IfcFile*& ifc_file, bool no_progress, bool mmap, bool bypass_properties=false);
+bool init_input_file(const std::string& filename, IfcParse::IfcFile*& ifc_file, bool no_progress, bool mmap, bool bypass_properties=false, Logger& logger = Logger::Root());
 
 // from https://stackoverflow.com/questions/31696328/boost-program-options-using-zero-parameter-options-multiple-times
 struct verbosity_counter {
@@ -226,6 +226,7 @@ int main(int argc, char** argv) {
 	typedef po::command_line_parser command_line_parser;
 	typedef char char_t;
 #endif
+	Logger logger;
 
 	inclusion_filter include_filter;
 	inclusion_traverse_filter include_traverse_filter;
@@ -251,6 +252,10 @@ int main(int argc, char** argv) {
 		("stderr-progress", "output progress to stderr stream")
 		("yes,y", "answer 'yes' automatically to possible confirmation queries (e.g. overwriting an existing output file)")
 		("no-progress", "suppress possible progress bar type of prints that use carriage return")
+		("fail-on-error", "return a non-zero exit code when one or more errors were logged during "
+			"geometry conversion (e.g. an element failed to convert). By default IfcConvert exits "
+			"successfully as long as an output file could be written, even if some elements were "
+			"silently dropped. Enable this flag so scripts and CI can detect partial conversions.")
 		("log-format", po::value<std::string>(&log_format), "log format: plain or json")
 		("log-file", new po::typed_value<path_t, char_t>(&log_file), "redirect log output to file");
 
@@ -448,6 +453,7 @@ int main(int argc, char** argv) {
 
 	const bool mmap = vmap.count("mmap") != 0;
 	const bool no_progress = vmap.count("no-progress") != 0;
+	const bool fail_on_error = vmap.count("fail-on-error") != 0;
 	const bool quiet = vmap.count("quiet") != 0;
 	const bool stderr_progress = vmap.count("stderr-progress") != 0;
 
@@ -492,15 +498,15 @@ int main(int argc, char** argv) {
 
 	if (num_threads <= 0) {
 		num_threads = std::thread::hardware_concurrency();
-		Logger::Notice("Using " + std::to_string(num_threads) + " threads");
+		logger.Notice("SYS", 7, "Using " + std::to_string(num_threads) + " threads");
 	}
     
 	if (vmap.count("log-format") == 1) {
 		boost::to_lower(log_format);
 		if (log_format == "plain") {
-			Logger::OutputFormat(Logger::FMT_PLAIN);
+			logger.OutputFormat(Logger::FMT_PLAIN);
 		} else if (log_format == "json") {
-			Logger::OutputFormat(Logger::FMT_JSON);
+			logger.OutputFormat(Logger::FMT_JSON);
 		} else {
 			cerr_ << "[Error] --log-format should be either plain or json" << std::endl;
 			print_usage();
@@ -511,7 +517,7 @@ int main(int argc, char** argv) {
     if (!filter_filename.empty()) {
         size_t num_filters = read_filters_from_file(IfcUtil::path::to_utf8(filter_filename), include_filter, include_traverse_filter, exclude_filter, exclude_traverse_filter);
         if (num_filters) {
-            Logger::Notice(boost::lexical_cast<std::string>(num_filters) + " filters read from specifified file.");
+            logger.Notice("SYS", 8, boost::lexical_cast<std::string>(num_filters) + " filters read from specifified file.");
         } else {
             cerr_ << "[Error] No filters read from specifified file.\n";
             return EXIT_FAILURE;
@@ -601,27 +607,27 @@ int main(int argc, char** argv) {
 
 	if (vmap.count("log-file")) {
 		log_fs.open(log_file.c_str(), std::ios::app);
-		Logger::SetOutput(quiet ? nullptr : &cout_, &log_fs);
+		logger.SetOutput(quiet ? nullptr : &cout_, &log_fs);
 	} else {
-		Logger::SetOutput(quiet ? nullptr : &cout_, vcounter.count > 1 ? &cout_ : &log_stream);
+		logger.SetOutput(quiet ? nullptr : &cout_, vcounter.count > 1 ? &cout_ : &log_stream);
 	}
 
 	switch (vcounter.count) {
 	case 0:
-		Logger::Verbosity(Logger::LOG_ERROR);
+		logger.Verbosity(Logger::LOG_ERROR);
 		break;
 	case 1:
-		Logger::Verbosity(Logger::LOG_NOTICE);
+		logger.Verbosity(Logger::LOG_NOTICE);
 		break;
 	case 2:
-		Logger::Verbosity(Logger::LOG_DEBUG);
+		logger.Verbosity(Logger::LOG_DEBUG);
 		break;
 	case 3:
-		Logger::Verbosity(Logger::LOG_PERF);
+		logger.Verbosity(Logger::LOG_PERF);
 		break;
 	case 4:
-		Logger::Verbosity(Logger::LOG_PERF);
-		Logger::PrintPerformanceStatsOnElement(true);
+		logger.Verbosity(Logger::LOG_PERF);
+		logger.PrintPerformanceStatsOnElement(true);
 		break;
 	}
 
@@ -665,52 +671,52 @@ int main(int argc, char** argv) {
 	if (output_extension == XML || output_extension == JSON) {
 		int exit_code = EXIT_FAILURE;
 		try {
-			if (init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
+			if (init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap, false, logger)) {
 				time_t start, end;
 				time(&start);
                 if (output_extension == XML) {
-                    XmlSerializer s(ifc_file, IfcUtil::path::to_utf8(output_temp_filename));
-                    Logger::Status("Writing XML output...");
+                    XmlSerializer s(ifc_file, IfcUtil::path::to_utf8(output_temp_filename), &logger);
+                    logger.Status("Writing XML output...");
                     s.finalize();
                 } else {
 #ifdef WITH_GLTF
-                    JsonSerializer s(ifc_file, IfcUtil::path::to_utf8(output_temp_filename), JsonSerializer::JSON_DIALECT_CREOOX);
-                    Logger::Status("Writing JSON output...");
+                    JsonSerializer s(ifc_file, IfcUtil::path::to_utf8(output_temp_filename), JsonSerializer::JSON_DIALECT_CREOOX, logger);
+                    logger.Status("Writing JSON output...");
                     s.finalize();
 #endif
                 }
 				time(&end);
-				Logger::Status("Done! Conversion took " +  format_duration(start, end));
+				logger.Status("Done! Conversion took " +  format_duration(start, end));
 
 				IfcUtil::path::rename_file(IfcUtil::path::to_utf8(output_temp_filename), IfcUtil::path::to_utf8(output_filename));
 				exit_code = EXIT_SUCCESS;
 			}
 		} catch (const std::exception& e) {
-			Logger::Error(e);
+			logger.Error("SYS", 9, e);
 		}
 		write_log(!quiet);
 		return exit_code;
 	} else if (output_extension == IFC) {
 		int exit_code = EXIT_FAILURE;
 		try {
-			if (init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
+			if (init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap, false, logger)) {
                 time_t start, end;
 				time(&start);
 				std::ofstream fs(output_filename.c_str());
 				if (fs.is_open()) {
 					if (vmap.count("calculate-quantities")) {
-						fix_quantities(*ifc_file, no_progress, quiet, stderr_progress);
+						fix_quantities(*ifc_file, no_progress, quiet, stderr_progress, logger);
 					}
 					fs << *ifc_file;
 					exit_code = EXIT_SUCCESS;
 				} else {
-					Logger::Error("Unable to open output file for writing");
+					logger.Error("SYS", 10, "Unable to open output file for writing");
 				}
                 time(&end);
-                Logger::Status("Done! Writing IFC took " +  format_duration(start, end));
+                logger.Status("Done! Writing IFC took " +  format_duration(start, end));
 			}
 		} catch (const std::exception& e) {
-			Logger::Error(e);
+			logger.Error("SYS", 11, e);
 		}
 		write_log(!quiet);
 		return exit_code;
@@ -722,26 +728,26 @@ int main(int argc, char** argv) {
 			if (vmap.count("stream")) {
 				time_t start, end;
 				time(&start);
-				RocksDbSerializer s(IfcUtil::path::to_utf8(input_filename), IfcUtil::path::to_utf8(output_filename), true);
-				Logger::Status("Populating RocksDB Key-Value store...");
+				RocksDbSerializer s(IfcUtil::path::to_utf8(input_filename), IfcUtil::path::to_utf8(output_filename), true, logger);
+				logger.Status("Populating RocksDB Key-Value store...");
 				s.finalize();
 				time(&end);
-				Logger::Status("Done! Conversion took " + format_duration(start, end));
+				logger.Status("Done! Conversion took " + format_duration(start, end));
 				exit_code = EXIT_SUCCESS;
 			} else {
-				if (init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap)) {
+				if (init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap, false, logger)) {
 					time_t start, end;
 					time(&start);
-					RocksDbSerializer s(ifc_file, IfcUtil::path::to_utf8(output_filename));
-					Logger::Status("Populating RocksDB Key-Value store...");
+					RocksDbSerializer s(ifc_file, IfcUtil::path::to_utf8(output_filename), logger);
+					logger.Status("Populating RocksDB Key-Value store...");
 					s.finalize();
 					time(&end);
-					Logger::Status("Done! Conversion took " + format_duration(start, end));
+					logger.Status("Done! Conversion took " + format_duration(start, end));
 					exit_code = EXIT_SUCCESS;
 				}
 			}			
 		} catch (const std::exception& e) {
-			Logger::Error(e);
+			logger.Error("SYS", 12, e);
 		}
 		write_log(!quiet);
 		return exit_code;
@@ -761,9 +767,9 @@ int main(int argc, char** argv) {
         return EXIT_FAILURE;
     }
 
-    if (!entity_filter.entity_names.empty()) { entity_filter.update_description(); Logger::Notice(entity_filter.description); }
-    if (!layer_filter.values.empty()) { layer_filter.update_description(); Logger::Notice(layer_filter.description); }
-	if (!attribute_filter.attribute_name.empty()) { attribute_filter.update_description(); Logger::Notice(attribute_filter.description); }
+    if (!entity_filter.entity_names.empty()) { entity_filter.update_description(); logger.Notice("SYS", 13, entity_filter.description); }
+    if (!layer_filter.values.empty()) { layer_filter.update_description(); logger.Notice("SYS", 14, layer_filter.description); }
+	if (!attribute_filter.attribute_name.empty()) { attribute_filter.update_description(); logger.Notice("SYS", 15, attribute_filter.description); }
 
 #ifdef _MSC_VER
 	if (output_extension == DAE || output_extension == STP || output_extension == IGS) {
@@ -828,39 +834,39 @@ int main(int argc, char** argv) {
 	if (output_extension == OBJ) {
         // Do not use temp file for MTL as it's such a small file.
         const path_t mtl_filename = change_extension(output_filename, MTL);
-		serializer = boost::make_shared<WaveFrontOBJSerializer>(IfcUtil::path::to_utf8(output_temp_filename), IfcUtil::path::to_utf8(mtl_filename), geometry_settings, serializer_settings);
+		serializer = boost::make_shared<WaveFrontOBJSerializer>(IfcUtil::path::to_utf8(output_temp_filename), IfcUtil::path::to_utf8(mtl_filename), geometry_settings, serializer_settings, &logger);
 #ifdef WITH_OPENCOLLADA
 	} else if (output_extension == DAE) {
-		serializer = boost::make_shared<ColladaSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings);
+		serializer = boost::make_shared<ColladaSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings, &logger);
 #endif
 #ifdef WITH_GLTF
 	} else if (output_extension == GLB) {
-		serializer = boost::make_shared<GltfSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings);
+		serializer = boost::make_shared<GltfSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings, &logger);
 #endif
 #ifdef WITH_USD
 	} else if (output_extension == USD || output_extension == USDA || output_extension == USDC) {
-		serializer = boost::make_shared<USDSerializer>(IfcUtil::path::to_utf8(output_filename), geometry_settings, serializer_settings);
+		serializer = boost::make_shared<USDSerializer>(IfcUtil::path::to_utf8(output_filename), geometry_settings, serializer_settings, logger);
 #endif
 #ifdef IFOPSH_WITH_OPENCASCADE
 	} else if (output_extension == STP) {
-		serializer = boost::make_shared<StepSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings);
+		serializer = boost::make_shared<StepSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings, logger);
 	} else if (output_extension == IGS) {
 #if OCC_VERSION_HEX < 0x60900
 		// According to https://tracker.dev.opencascade.org/view.php?id=25689 something has been fixed in 6.9.0
 		IGESControl_Controller::Init(); // work around Open Cascade bug
 #endif
-		serializer = boost::make_shared<IgesSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings);
+		serializer = boost::make_shared<IgesSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings, logger);
 	} else if (output_extension == SVG) {
 		geometry_settings.get<ifcopenshell::geometry::settings::IteratorOutput>().value = ifcopenshell::geometry::settings::NATIVE;
-		serializer = boost::make_shared<SvgSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings);
+		serializer = boost::make_shared<SvgSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings, &logger);
 #ifdef WITH_HDF5
 	} else if (output_extension == HDF) {
 		geometry_settings.get<ifcopenshell::geometry::settings::IteratorOutput>().value = ifcopenshell::geometry::settings::NATIVE;
-		serializer = boost::make_shared<HdfSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings);
+		serializer = boost::make_shared<HdfSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings, false, &logger);
 #endif
-#endif	
+#endif
 	} else if (output_extension == TTL) {
-		serializer = boost::make_shared<TtlWktSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings);
+		serializer = boost::make_shared<TtlWktSerializer>(IfcUtil::path::to_utf8(output_temp_filename), geometry_settings, serializer_settings, &logger);
 	} else {
         cerr_ << "[Error] Unknown output filename extension '" << output_extension << "'\n";
 		write_log(!quiet);
@@ -871,19 +877,20 @@ int main(int argc, char** argv) {
     const bool is_tesselated = serializer->isTesselated(); // isTesselated() doesn't change at run-time
 	if (!is_tesselated) {
 		if (geometry_settings.get<ifcopenshell::geometry::settings::WeldVertices>().get()) {
-            Logger::Notice("Weld vertices setting ignored when writing non-tesselated output");
+            logger.Notice("SYS", 16, "Weld vertices setting ignored when writing non-tesselated output");
 		}
         if (geometry_settings.get<ifcopenshell::geometry::settings::GenerateUvs>().get()) {
-            Logger::Notice("Generate UVs setting ignored when writing non-tesselated output");
+            logger.Notice("SYS", 17, "Generate UVs setting ignored when writing non-tesselated output");
         }
         if (center_model || center_model_geometry) {
-            Logger::Notice("Centering/offsetting model setting ignored when writing non-tesselated output");
+            logger.Notice("SYS", 18, "Centering/offsetting model setting ignored when writing non-tesselated output");
         }
 
 		geometry_settings.get<ifcopenshell::geometry::settings::IteratorOutput>().value = ifcopenshell::geometry::settings::NATIVE;
 	}
 
 	if (!serializer->ready()) {
+		logger.Error("SYS", 25, "Unable to open output file '" + IfcUtil::path::to_utf8(output_filename) + "' for writing; check that the directory exists and is writable");
 		IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename));
 		write_log(!quiet);
 		return EXIT_FAILURE;
@@ -895,7 +902,7 @@ int main(int argc, char** argv) {
 	// @nb last argument true -> bypass_properties which are not read by any of the geometry serializers
     // XML, RocksDB, IFC are already special-cased above
     // SVG requires properties for IfcAnnotation/DRAWING properties
-    if (!init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap, output_extension != SVG)) {
+    if (!init_input_file(IfcUtil::path::to_utf8(input_filename), ifc_file, no_progress || quiet, mmap, output_extension != SVG, logger)) {
         write_log(!quiet);
 		serializer.reset();
         IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename)); /**< @todo Windows Unicode support */
@@ -903,9 +910,9 @@ int main(int argc, char** argv) {
     }
 
 	if (vmap.count("log-file")) {
-		Logger::SetOutput(quiet ? nullptr : &cout_, &log_fs);
+		logger.SetOutput(quiet ? nullptr : &cout_, &log_fs);
 	} else {
-		Logger::SetOutput(quiet ? nullptr : &cout_, vcounter.count > 1 ? &cout_ : &log_stream);
+		logger.SetOutput(quiet ? nullptr : &cout_, vcounter.count > 1 ? &cout_ : &log_stream);
 	}
 
 	if (model_rotation) {
@@ -920,13 +927,13 @@ int main(int argc, char** argv) {
 
 		std::stringstream msg;
 		msg << "Using model rotation (" << rotation[0] << "," << rotation[1] << "," << rotation[2] << "," << rotation[3] << ")";
-		Logger::Notice(msg.str());
+		logger.Notice("SYS", 19, msg.str());
 
 		geometry_settings.get<ifcopenshell::geometry::settings::ModelRotation>().value = rotation;
 	}
 
 	if (model_offset && (center_model || center_model_geometry)) {
-		Logger::Notice("--model-offset ignored with --center-model or --center-model-geometry");
+		logger.Notice("GEO", 22, "--model-offset ignored with --center-model or --center-model-geometry");
 	}
 
 	if (model_offset && !(center_model || center_model_geometry)) {
@@ -941,7 +948,7 @@ int main(int argc, char** argv) {
 
 		std::stringstream msg;
 		msg << std::setprecision(std::numeric_limits<double>::max_digits10) << "Using model offset (" << offset[0] << "," << offset[1] << "," << offset[2] << ")";
-		Logger::Notice(msg.str());
+		logger.Notice("SYS", 20, msg.str());
 
 		geometry_settings.get<ifcopenshell::geometry::settings::ModelOffset>().value = offset;
 	}
@@ -949,17 +956,17 @@ int main(int argc, char** argv) {
     if (is_tesselated && (center_model || center_model_geometry)) {
 		std::vector<double> offset(3);
 
-		IfcGeom::Iterator tmp_context_iterator(ifcopenshell::geometry::kernels::construct(ifc_file, geometry_kernel, geometry_settings), geometry_settings, ifc_file, filter_funcs, num_threads);
+		IfcGeom::Iterator tmp_context_iterator(ifcopenshell::geometry::kernels::construct(ifc_file, geometry_kernel, geometry_settings, logger), geometry_settings, ifc_file, filter_funcs, num_threads, logger);
 			
 		time_t start, end;
 		time(&start);
-		if (!quiet) Logger::Status("Computing bounds...");
+		if (!quiet) logger.Status("Computing bounds...");
 
 		if (center_model_geometry) {
 			if (!tmp_context_iterator.initialize()) {
 				/// @todo It would be nice to know and print separate error prints for a case where we found no entities
 				/// and for a case we found no entities that satisfy our filtering criteria.
-				Logger::Notice("No geometrical elements found or none successfully converted");
+				logger.Notice("GEO", 23, "No geometrical elements found or none successfully converted");
 				serializer.reset();
 				IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename));
 				write_log(!quiet);
@@ -970,7 +977,7 @@ int main(int argc, char** argv) {
         tmp_context_iterator.compute_bounds(center_model_geometry);
 
 		time(&end);
-        if (!quiet) Logger::Status("Done ! Bounds computed in " + format_duration(start, end));
+        if (!quiet) logger.Status("Done ! Bounds computed in " + format_duration(start, end));
 
         auto center = (tmp_context_iterator.bounds_min().ccomponents() + tmp_context_iterator.bounds_max().ccomponents()) * 0.5;
         offset[0] = -center(0);
@@ -979,7 +986,7 @@ int main(int argc, char** argv) {
 
         std::stringstream msg;
         msg << std::setprecision (std::numeric_limits<double>::max_digits10) << "Using model offset (" << offset[0] << "," << offset[1] << "," << offset[2] << ")";
-        Logger::Notice(msg.str());
+        logger.Notice("SYS", 21, msg.str());
 
 		geometry_settings.get<ifcopenshell::geometry::settings::ModelOffset>().value = offset;
     }
@@ -995,7 +1002,7 @@ int main(int argc, char** argv) {
 
 	std::unique_ptr<IfcGeom::Iterator> context_iterator;
 	if (!elems_from_adaptor) {
-		context_iterator.reset(new IfcGeom::Iterator(ifcopenshell::geometry::kernels::construct(ifc_file, geometry_kernel, geometry_settings), geometry_settings, ifc_file, filter_funcs, num_threads));
+		context_iterator.reset(new IfcGeom::Iterator(ifcopenshell::geometry::kernels::construct(ifc_file, geometry_kernel, geometry_settings, logger), geometry_settings, ifc_file, filter_funcs, num_threads, logger));
 	}	
 
 #if defined(WITH_HDF5) && defined(IFOPSH_WITH_OPENCASCADE)
@@ -1004,17 +1011,17 @@ int main(int argc, char** argv) {
 		if (!vmap.count("cache-file")) {
 			cache_file = input_filename + CACHE + HDF;
 		}
-		cache.reset(new HdfSerializer(IfcUtil::path::to_utf8(cache_file), geometry_settings, serializer_settings));
+		cache.reset(new HdfSerializer(IfcUtil::path::to_utf8(cache_file), geometry_settings, serializer_settings, false, &logger));
 		context_iterator->set_cache(cache.get());
 	}
 #endif
 
-	Logger::Message(Logger::LOG_PERF, "file geometry conversion");
+	logger.Message(Logger::LOG_PERF, "GEO", 24, "file geometry conversion");
 
     if (context_iterator && !context_iterator->initialize()) {
         /// @todo It would be nice to know and print separate error prints for a case where we found no entities
         /// and for a case we found no entities that satisfy our filtering criteria.
-        Logger::Notice("No geometrical elements found or none successfully converted");
+        logger.Notice("GEO", 25, "No geometrical elements found or none successfully converted");
 		serializer.reset();
 		IfcUtil::path::delete_file(IfcUtil::path::to_utf8(output_temp_filename));
         write_log(!quiet);
@@ -1033,7 +1040,7 @@ int main(int argc, char** argv) {
 				static_cast<SvgSerializer*>(serializer.get())->setSectionHeightsFromStoreys();
 			}
 		} else if (vmap.count("section-height") != 0) {
-			Logger::Notice("Overriding section height");
+			logger.Notice("SYS", 22, "Overriding section height");
 			static_cast<SvgSerializer*>(serializer.get())->setSectionHeight(section_height);
 		}
 		if (vmap.count("print-space-names") != 0) {
@@ -1111,7 +1118,7 @@ int main(int argc, char** argv) {
 	int old_progress = quiet ? 0 : -1;
 
 	if (!quiet) {
-		Logger::Status("Creating geometry...");
+		logger.Status("Creating geometry...");
 	}
 
 	// The functions IfcGeom::Iterator::get() and IfcGeom::Iterator::next() 
@@ -1156,10 +1163,10 @@ int main(int argc, char** argv) {
 				if (stderr_progress)
 					cerr_ << std::flush;
 			} else if (vcounter.count == 2) {
-				Logger::Message(Logger::LOG_DEBUG, "Progress " + boost::lexical_cast<std::string>(progress));
+				logger.Message(Logger::LOG_DEBUG, "SYS", 23, "Progress " + boost::lexical_cast<std::string>(progress));
 			} else {
 				progress = progress / 2;
-				if (old_progress != progress) Logger::ProgressBar(progress);
+				if (old_progress != progress) logger.ProgressBar(progress);
 				old_progress = progress;
 			}
         }
@@ -1188,7 +1195,7 @@ int main(int argc, char** argv) {
 		}
 	} else {
 		const std::string task = ((num_threads == 1) ? "creating" : "writing");
-		Logger::Status("\rDone " + task + " geometry (" + boost::lexical_cast<std::string>(num_created) +
+		logger.Status("\rDone " + task + " geometry (" + boost::lexical_cast<std::string>(num_created) +
 			" objects)                                ");
 	}
 
@@ -1196,7 +1203,7 @@ int main(int argc, char** argv) {
     // Make sure the dtor is explicitly run here (e.g. output files are closed before renaming them).
     serializer.reset();
 
-	Logger::Message(Logger::LOG_PERF, "done file geometry conversion");
+	logger.Message(Logger::LOG_PERF, "GEO", 26, "done file geometry conversion");
 
 	bool successful;
 	if(output_extension == USD || output_extension == USDC || output_extension == USDA) {
@@ -1214,13 +1221,18 @@ int main(int argc, char** argv) {
             output_temp_filename << "' for the conversion result.";
     }
 
-	if (geometry_settings.get<ifcopenshell::geometry::settings::ValidateQuantities>().get() && Logger::MaxSeverity() >= Logger::LOG_ERROR) {
-		Logger::Error("Errors encountered during processing.");
+	if (geometry_settings.get<ifcopenshell::geometry::settings::ValidateQuantities>().get() && logger.MaxSeverity() >= Logger::LOG_ERROR) {
+		logger.Error("SYS", 24, "Errors encountered during processing.");
 		successful = false;
 	}
 
-	if (Logger::Verbosity() == Logger::LOG_PERF) {
-		Logger::PrintPerformanceStats();
+	if (fail_on_error && logger.MaxSeverity() >= Logger::LOG_ERROR) {
+		logger.Error("SYS", 26, "Errors encountered during processing, failing due to --fail-on-error.");
+		successful = false;
+	}
+
+	if (logger.Verbosity() == Logger::LOG_PERF) {
+		logger.PrintPerformanceStats();
 	}
 
 	write_log(!quiet);
@@ -1228,7 +1240,7 @@ int main(int argc, char** argv) {
 	time(&end);
 
     if (!quiet) {
-        Logger::Status("\nConversion took " +  format_duration(start, end));
+        logger.Status("\nConversion took " +  format_duration(start, end));
     }
 
     return successful ? EXIT_SUCCESS : EXIT_FAILURE;
@@ -1266,11 +1278,11 @@ void write_log(bool header) {
 
 #include <boost/algorithm/string/predicate.hpp>
 
-bool init_input_file(const std::string& filename, IfcParse::IfcFile*& ifc_file, bool no_progress, bool mmap, bool bypass_properties) {
+bool init_input_file(const std::string& filename, IfcParse::IfcFile*& ifc_file, bool no_progress, bool mmap, bool bypass_properties, Logger& logger) {
     time_t start, end;
 
     // Prevent IfcFile::Init() prints by setting output to null temporarily
-    if (no_progress) { Logger::SetOutput(NULL, &log_stream); }
+    if (no_progress) { logger.SetOutput(NULL, &log_stream); }
 
     time(&start);
 
@@ -1278,11 +1290,11 @@ bool init_input_file(const std::string& filename, IfcParse::IfcFile*& ifc_file, 
 
 #ifdef WITH_IFCXML
 	if (boost::ends_with(boost::to_lower_copy(filename), ".ifcxml")) {
-		ifc_file = IfcParse::parse_ifcxml(filename);
+		ifc_file = IfcParse::parse_ifcxml(filename, &logger);
     } else
 #endif
     {
-        ifc_file = new IfcParse::IfcFile(IfcParse::uninitialized_tag{});
+        ifc_file = new IfcParse::IfcFile(IfcParse::uninitialized_tag{}, logger);
         requires_init = true;
     }
 
@@ -1308,13 +1320,13 @@ bool init_input_file(const std::string& filename, IfcParse::IfcFile*& ifc_file, 
     }
 
 	if (!ifc_file || !ifc_file->good()) {
-        Logger::Error("Unable to parse input file '" + filename + "'");
+        logger.Error("SYN", 1, "Unable to parse input file '" + filename + "'");
         return false;
     }
     time(&end);
 
-    if (no_progress) { Logger::SetOutput(&cout_, &log_stream); }
-    else {  Logger::Status("Parsing input file took " + format_duration(start, end)); }
+    if (no_progress) { logger.SetOutput(&cout_, &log_stream); }
+    else {  logger.Status("Parsing input file took " + format_duration(start, end)); }
 
     return true;
 
@@ -1533,7 +1545,7 @@ namespace latebound_access {
 	}
 }
 
-void fix_quantities(IfcParse::IfcFile& f, bool no_progress, bool quiet, bool stderr_progress) {
+void fix_quantities(IfcParse::IfcFile& f, bool no_progress, bool quiet, bool stderr_progress, Logger& logger) {
 	{
 		auto delete_reversed = [&f](const aggregate_of_instance::ptr& insts) {
 			if (!insts) {
@@ -1588,7 +1600,7 @@ void fix_quantities(IfcParse::IfcFile& f, bool no_progress, bool quiet, bool std
 	settings.get<ifcopenshell::geometry::settings::ConvertBackUnits>().value = true;
 	settings.get<ifcopenshell::geometry::settings::IteratorOutput>().value = ifcopenshell::geometry::settings::NATIVE;
 
-	IfcGeom::Iterator context_iterator(ifcopenshell::geometry::kernels::construct(&f, "opencascade", settings), settings, &f, {}, 1);
+	IfcGeom::Iterator context_iterator(ifcopenshell::geometry::kernels::construct(&f, "opencascade", settings, logger), settings, &f, {}, 1, logger);
 
 	if (!context_iterator.initialize()) {
 		return;
@@ -1716,7 +1728,7 @@ void fix_quantities(IfcParse::IfcFile& f, bool no_progress, bool quiet, bool std
 					cerr_ << std::flush;
 			} else {
 				const int progress = context_iterator.progress() / 2;
-				if (old_progress != progress) Logger::ProgressBar(progress);
+				if (old_progress != progress) logger.ProgressBar(progress);
 				old_progress = progress;
 			}
 		}
@@ -1732,7 +1744,7 @@ void fix_quantities(IfcParse::IfcFile& f, bool no_progress, bool quiet, bool std
 		if (stderr_progress)
 			cerr_ << std::flush;
 	} else {
-		Logger::Status("\rDone writing quantities for " + boost::lexical_cast<std::string>(num_created) +
+		logger.Status("\rDone writing quantities for " + boost::lexical_cast<std::string>(num_created) +
 			" objects                                ");
 	}
 

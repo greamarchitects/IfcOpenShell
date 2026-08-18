@@ -19,7 +19,7 @@
 """Run this test from src/ifcopenshell-python folder: pytest --durations=0 ifcopenshell/util/test_pset.py"""
 
 from ifcopenshell.util import pset
-from ifcopenshell.util.pset import ApplicableEntity
+from ifcopenshell.util.pset import ApplicableEntity, PsetQto
 
 
 class TestPsetQto:
@@ -136,3 +136,36 @@ class TestConvertApplicableEntitiesToQuery:
         assert (
             pset.convert_applicable_entities_to_query(entities) == 'IfcBoilerType, PredefinedType="STEAM" + IfcWallType'
         )
+
+
+class TestPsetTemplateFiles:
+    """Guards against malformed IfcSimplePropertyTemplate entities in the bundled
+    Pset/Qto template files (see #9289).
+
+    A missing OwnerHistory attribute (the second attribute, which should always be
+    ``$``) shifts every subsequent attribute over by one. The practical symptom is
+    that ``Name`` ends up holding the property's ``Description`` text instead of its
+    real name (e.g. "Indicates whether the object is intended to carry loads..."
+    instead of "LoadBearing"), which silently hides the property from anything that
+    looks it up by name.
+    """
+
+    def test_property_templates_are_well_formed(self):
+        for schema in PsetQto.templates_path:
+            template_file = PsetQto(schema).templates[0]
+            for template in template_file.by_type("IfcSimplePropertyTemplate"):
+                name = template.Name
+                assert name, f"{schema} {template} has no Name (OwnerHistory attribute may be missing)"
+                assert " " not in name, (
+                    f"{schema} {template} has a Name that looks like a Description "
+                    "(OwnerHistory attribute is probably missing, shifting all following attributes)"
+                )
+
+    def test_load_bearing_is_defined_in_ifc4(self):
+        pset_qto = PsetQto("IFC4")
+        for pset_name in ("Pset_RoofCommon", "Pset_RampCommon", "Pset_StairCommon"):
+            pset_template = pset_qto.get_by_name(pset_name)
+            assert pset_template, f"{pset_name} not found"
+            properties = {prop.Name: prop for prop in pset_template.HasPropertyTemplates}
+            assert "LoadBearing" in properties, f"LoadBearing missing from {pset_name}"
+            assert properties["LoadBearing"].PrimaryMeasureType == "IfcBoolean"
